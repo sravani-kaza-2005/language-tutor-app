@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Easy Learn - AI Language Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Custom font import and styling */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc; /* Slate 50 */
+        }
+        /* Custom scrollbar for chat/content */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #cbd5e1; /* Slate 300 */
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <header class="bg-white shadow-lg sticky top-0 z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
+            <a href="#" class="flex items-center space-x-2 text-2xl font-extrabold text-indigo-600 tracking-tight" onclick="navigate('home')">
+                <i data-lucide="graduation-cap" class="w-6 h-6 text-indigo-500"></i>
+                <span>Easy Learn</span>
+            </a>
+            <nav class="hidden md:flex space-x-6 text-gray-700 font-medium">
+                <a href="#" class="hover:text-indigo-600 transition duration-150" onclick="navigate('home')">Home</a>
+                <a href="#" class="hover:text-indigo-600 transition duration-150" id="dashboard-nav-link">Dashboard</a>
+                <a href="#" class="hover:text-indigo-600 transition duration-150" onclick="navigate('about')">About</a>
+                <button class="text-white bg-indigo-500 hover:bg-indigo-600 px-4 py-2 rounded-full shadow-md transition duration-150" id="auth-button">Login</button>
+            </nav>
+            <button id="mobile-menu-button" class="md:hidden p-2 text-gray-700 hover:text-indigo-600" onclick="toggleMobileMenu()">
+                <i data-lucide="menu" class="w-6 h-6"></i>
+            </button>
+        </div>
+        <div id="mobile-menu" class="hidden md:hidden bg-white shadow-inner pb-2 border-t">
+            <nav class="flex flex-col space-y-2 px-4 py-2 font-medium">
+                <a href="#" class="block px-3 py-2 rounded-md hover:bg-indigo-50" onclick="navigate('home')">Home</a>
+                <a href="#" class="block px-3 py-2 rounded-md hover:bg-indigo-50" id="dashboard-nav-link-mobile">Dashboard</a>
+                <a href="#" class="block px-3 py-2 rounded-md hover:bg-indigo-50" onclick="navigate('about')">About</a>
+                <button class="block px-3 py-2 rounded-md text-white bg-indigo-500 text-center rounded-full mt-2" id="auth-button-mobile">Login</button>
+            </nav>
+        </div>
+    </header>
+
+    <main id="app-content" class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 w-full"></main>
+
+    <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="flex flex-col items-center p-6 bg-white rounded-xl shadow-2xl">
+            <div class="animate-spin rounded-full h-12 w-12 border-4 border-t-4 border-indigo-500 border-opacity-20 border-t-indigo-500"></div>
+            <p class="mt-4 text-gray-700 font-semibold">Loading Easy Learn...</p>
+        </div>
+    </div>
+    
+    <div id="ai-loading-modal" class="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50 hidden">
+        <div class="flex flex-col items-center p-8 bg-white rounded-xl shadow-2xl w-full max-w-sm">
+            <div class="animate-pulse rounded-full h-10 w-10 bg-indigo-500"></div>
+            <p class="mt-4 text-gray-700 font-semibold text-lg">AI Tutor is thinking...</p>
+            <p class="text-sm text-gray-500 mt-1">Fetching information from the web.</p>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signOut, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        // Firestore is no longer needed since progress saving is removed, but keeping a minimal import for robustness if needed later
+        import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"; 
+
+        // Global variables for Firebase services and state
+        let app = null; // Changed to null initialization
+        let db;
+        let auth;
+        let userId = null;
+        let isAuthReady = false;
+
+        // --- GLOBAL ENVIRONMENT VARIABLES (MANDATORY USE) ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-easy-learn-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        // --- END OF GLOBAL ENVIRONMENT VARIABLES ---
+
+        // Global application state
+        window.appState = {
+            currentPage: 'home',
+            selectedLanguage: null,
+            chatHistory: [],
+            isChatLoading: false
+        };
+
+        // Static Language Content Data (Lessons/Tasks/Quizzes removed)
+        const CONTENT_MAP = {
+            english: { name: "English", icon: "book-open", color: "bg-green-500", accent: "text-green-600" },
+            hindi: { name: "Hindi (हिंदी)", icon: "landmark", color: "bg-red-500", accent: "text-red-600" },
+            telugu: { name: "Telugu (తెలుగు)", icon: "users", color: "bg-blue-500", accent: "text-blue-600" },
+            tamil: { name: "Tamil (தமிழ்)", icon: "bus", color: "bg-yellow-500", accent: "text-yellow-600" }
+        };
+
+        // --- FIREBASE INITIALIZATION AND AUTHENTICATION ---
+
+        async function initializeFirebase() {
+            try {
+                const loadingOverlay = document.getElementById('loading-overlay');
+                loadingOverlay.classList.remove('hidden');
+
+                // Check if config is provided (running in a host environment)
+                if (Object.keys(firebaseConfig).length > 0) {
+                    app = initializeApp(firebaseConfig);
+                    db = getFirestore(app);
+                    auth = getAuth(app);
+
+                    // Listen for Auth state changes
+                    onAuthStateChanged(auth, (user) => {
+                        if (user) {
+                            userId = user.uid;
+                            console.log("Auth state changed. User ID:", userId);
+                        } else {
+                            userId = null;
+                            console.log("User signed out.");
+                        }
+                        isAuthReady = true;
+                        updateUIOnAuth();
+                        renderApp();
+                        loadingOverlay.classList.add('hidden');
+                    });
+
+                    // Attempt to sign in if a token exists
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    }
+                } else {
+                    // Running locally without config
+                    console.warn("Firebase config is missing. Running in local development mode.");
+                    auth = { currentUser: null }; // Mock auth object
+                    isAuthReady = true;
+                    updateUIOnAuth();
+                    renderApp();
+                    loadingOverlay.classList.add('hidden');
+                }
+                
+            } catch (error) {
+                console.error("Firebase Initialization Error:", error);
+                document.getElementById('loading-overlay').classList.add('hidden');
+            }
+        }
+
+        async function handleLogin() {
+            // Check if Firebase was initialized (i.e., if 'app' is not null)
+            if (!app) {
+                // --- LOCAL DEV LOGIN SIMULATION ---
+                // If running locally without config, simulate a successful anonymous login
+                userId = 'LOCAL_DEV_USER_' + Math.random().toString(16).slice(2, 8).toUpperCase();
+                isAuthReady = true;
+                console.log("Simulating local anonymous login:", userId);
+
+                // Update UI state and navigate
+                updateUIOnAuth();
+                renderApp();
+                navigate('dashboard');
+                
+                // Show a brief message to the user that this is a simulated login
+                const modalHtml = `
+                    <div id="custom-alert-modal" class="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50">
+                        <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center border-t-4 border-yellow-500">
+                            <h3 class="text-xl font-bold text-yellow-600 mb-3">Local Mode Active</h3>
+                            <p class="text-gray-700 mb-4">Authentication has been successfully simulated for local testing.</p>
+                            <button class="bg-indigo-600 text-white px-4 py-2 rounded-full hover:bg-indigo-700" onclick="document.getElementById('custom-alert-modal').remove()">
+                                Continue
+                            </button>
+                        </div>
+                    </div>
+                `;
+                document.body.insertAdjacentHTML('beforeend', modalHtml);
+                // --- END OF SIMULATION ---
+                return;
+            }
+
+            // Real Firebase login attempt
+            try {
+                // Use anonymous sign-in to get a persistent user ID
+                await signInAnonymously(auth);
+                navigate('dashboard');
+            } catch (error) {
+                console.error("Login failed:", error);
+                const modalHtml = `
+                    <div id="custom-alert-modal" class="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50">
+                        <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
+                            <h3 class="text-xl font-bold text-red-600 mb-3">Login Failed</h3>
+                            <p class="text-gray-700 mb-4">Login failed. Please try again.</p>
+                            <button class="bg-indigo-600 text-white px-4 py-2 rounded-full hover:bg-indigo-700" onclick="document.getElementById('custom-alert-modal').remove()">
+                                OK
+                            </button>
+                        </div>
+                    </div>
+                `;
+                document.body.insertAdjacentHTML('beforeend', modalHtml);
+            }
+        }
+
+        async function handleLogout() {
+            if (!auth || !app) {
+                // Handle logout simulation for local dev
+                userId = null;
+                isAuthReady = true;
+                window.appState.selectedLanguage = null;
+                window.appState.chatHistory = [];
+                updateUIOnAuth();
+                navigate('login');
+                console.log("Simulated local logout.");
+                return;
+            }
+            try {
+                await signOut(auth);
+                window.appState.selectedLanguage = null; // Clear language selection
+                window.appState.chatHistory = []; // Clear chat
+                navigate('login');
+            } catch (error) {
+                console.error("Logout failed:", error);
+            }
+        }
+
+        function updateUIOnAuth() {
+            const authButton = document.getElementById('auth-button');
+            const authButtonMobile = document.getElementById('auth-button-mobile');
+            const dashboardNavLink = document.getElementById('dashboard-nav-link');
+            const dashboardNavLinkMobile = document.getElementById('dashboard-nav-link-mobile');
+
+            if (!authButton || !dashboardNavLink) return;
+
+            // Set Dashboard link target
+            const dashboardAction = () => navigate(userId ? 'dashboard' : 'login');
+            dashboardNavLink.onclick = dashboardAction;
+            dashboardNavLinkMobile.onclick = () => { dashboardAction(); toggleMobileMenu(); };
+
+
+            if (userId) {
+                // Logged In
+                authButton.textContent = 'Logout';
+                authButton.onclick = handleLogout;
+                authButtonMobile.textContent = 'Logout';
+                authButtonMobile.onclick = () => { handleLogout(); toggleMobileMenu(); };
+                
+            } else {
+                // Logged Out
+                authButton.textContent = 'Login';
+                authButton.onclick = () => navigate('login');
+                authButtonMobile.textContent = 'Login';
+                authButtonMobile.onclick = () => { navigate('login'); toggleMobileMenu(); };
+
+                // Redirect to login if user tries to access a restricted page while logged out
+                if (window.appState.currentPage === 'dashboard' || window.appState.currentPage === 'learn') {
+                    window.appState.currentPage = 'login';
+                }
+            }
+        }
+
+        // --- AI (GEMINI) API INTERACTION ---
+
+        const AI_MODEL_NAME = "gemini-2.5-flash-preview-05-20";
+        const AI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${AI_MODEL_NAME}:generateContent?key=`;
+
+        async function askAIQuestion(question) {
+            if (window.appState.isChatLoading) return;
+            if (!userId) {
+                const modalHtml = `
+                    <div id="custom-alert-modal" class="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50">
+                        <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
+                            <h3 class="text-xl font-bold text-red-600 mb-3">Authentication Required</h3>
+                            <p class="text-gray-700 mb-4">You must be logged in to use the AI Tutor.</p>
+                            <button class="bg-indigo-600 text-white px-4 py-2 rounded-full hover:bg-indigo-700" onclick="document.getElementById('custom-alert-modal').remove(); navigate('login')">
+                                Go to Login
+                            </button>
+                        </div>
+                    </div>
+                `;
+                document.body.insertAdjacentHTML('beforeend', modalHtml);
+                return;
+            }
+
+            window.appState.isChatLoading = true;
+            document.getElementById('ai-loading-modal').classList.remove('hidden');
+
+            // Add user message to state
+            window.appState.chatHistory.push({ role: 'user', text: question });
+            renderChat();
+
+            const selectedLang = CONTENT_MAP[window.appState.selectedLanguage]?.name || 'a general language learning topic';
+            const systemPrompt = `You are Easy Learn, a friendly and expert language tutor specializing in ${selectedLang}. Your role is to answer the user's questions clearly, provide simple examples, and encourage them to practice. If the user asks a question in ${selectedLang} or related to it, respond directly using ${selectedLang} and provide an English translation or explanation. Keep responses concise and directly relevant to language learning.`;
+
+            const payload = {
+                contents: [{ parts: [{ text: question }] }],
+                tools: [{ "google_search": {} }], 
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+            };
+
+            const apiKey = "AIzaSyAoI-zcoSJY9IDLxYiuygKBnTaMjidVIwM"; // API key updated by user
+
+            let responseText = "Sorry, I couldn't connect to the AI tutor. Please try again later.";
+            let sources = [];
+            let delay = 1000;
+            const maxRetries = 3;
+
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(AI_API_URL + apiKey, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    const candidate = result.candidates?.[0];
+
+                    if (candidate && candidate.content?.parts?.[0]?.text) {
+                        responseText = candidate.content.parts[0].text;
+
+                        const groundingMetadata = candidate.groundingMetadata;
+                        if (groundingMetadata && groundingMetadata.groundingAttributions) {
+                            sources = groundingMetadata.groundingAttributions
+                                .map(attribution => ({ uri: attribution.web?.uri, title: attribution.web?.title }))
+                                .filter(source => source.uri && source.title);
+                        }
+                        break; // Success
+                    } else {
+                        throw new Error("Invalid response structure from AI.");
+                    }
+
+                } catch (error) {
+                    console.error(`Attempt ${i + 1} failed:`, error);
+                    if (i < maxRetries - 1) {
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        delay *= 2; // Exponential backoff
+                    }
+                }
+            }
+
+            // Add AI response to state
+            window.appState.chatHistory.push({ role: 'ai', text: responseText, sources: sources });
+            window.appState.isChatLoading = false;
+            document.getElementById('ai-loading-modal').classList.add('hidden');
+            renderChat();
+        }
+
+        // --- UI/RENDERING FUNCTIONS ---
+
+        function navigate(page, langKey = null) {
+            window.appState.currentPage = page;
+
+            if (page === 'learn' && langKey) {
+                if (!userId) {
+                    // Use custom modal instead of alert
+                    const modalHtml = `
+                        <div id="custom-alert-modal" class="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50">
+                            <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
+                                <h3 class="text-xl font-bold text-red-600 mb-3">Login Required</h3>
+                                <p class="text-gray-700 mb-4">Please log in first to start practicing.</p>
+                                <button class="bg-indigo-600 text-white px-4 py-2 rounded-full hover:bg-indigo-700" onclick="document.getElementById('custom-alert-modal').remove(); navigate('login')">
+                                    Go to Login
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    document.body.insertAdjacentHTML('beforeend', modalHtml);
+                    return navigate('login');
+                }
+                window.appState.selectedLanguage = langKey;
+                window.appState.chatHistory = []; // Clear chat when starting a new language
+            } else if (page === 'dashboard' && !userId) {
+                return navigate('login');
+            }
+            
+            // Close mobile menu if open
+            const mobileMenu = document.getElementById('mobile-menu');
+            if (mobileMenu && !mobileMenu.classList.contains('hidden')) {
+                mobileMenu.classList.add('hidden');
+            }
+            renderApp();
+            window.scrollTo(0, 0); // Scroll to top on navigation
+        }
+
+        function toggleMobileMenu() {
+            document.getElementById('mobile-menu').classList.toggle('hidden');
+        }
+
+        function renderApp() {
+            const contentDiv = document.getElementById('app-content');
+            let html = '';
+
+            // Ensure authenticated users are redirected away from login/home if they hit the button
+            if (userId && window.appState.currentPage === 'login') {
+                window.appState.currentPage = 'dashboard';
+            }
+
+            switch (window.appState.currentPage) {
+                case 'home':
+                    html = renderHomePage();
+                    break;
+                case 'about':
+                    html = renderAboutPage();
+                    break;
+                case 'login':
+                    html = renderLoginPage();
+                    break;
+                case 'dashboard':
+                    html = renderDashboardPage();
+                    break;
+                case 'learn':
+                    html = renderLearnPage();
+                    break;
+                default:
+                    html = renderHomePage();
+            }
+
+            contentDiv.innerHTML = html;
+            // Re-render Lucide icons after setting innerHTML
+            lucide.createIcons();
+
+            // Special handling for the chat window on the Learn Page
+            if (window.appState.currentPage === 'learn') {
+                renderChat();
+            }
+        }
+
+        // --- PAGE RENDERERS ---
+
+        function renderHomePage() {
+            return `
+                <div class="text-center py-20 bg-indigo-50 rounded-xl shadow-lg">
+                    <i data-lucide="zap" class="w-12 h-12 mx-auto text-indigo-500 mb-4"></i>
+                    <h1 class="text-5xl font-extrabold text-gray-900 leading-tight mb-4">
+                        Master Languages with <span class="text-indigo-600">Easy Learn</span>
+                    </h1>
+                    <p class="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
+                        Ask our AI Tutor anything about English, Hindi, Telugu, or Tamil. Get instant, real-time feedback and practice.
+                    </p>
+                    <button class="bg-indigo-600 text-white text-lg font-semibold px-8 py-3 rounded-full hover:bg-indigo-700 transition duration-300 shadow-xl transform hover:scale-[1.02]"
+                        onclick="navigate('${userId ? 'dashboard' : 'login'}')">
+                        ${userId ? 'Go to Dashboard' : 'Start Learning Now'} <i data-lucide="arrow-right" class="inline w-5 h-5 ml-1"></i>
+                    </button>
+                </div>
+                <div class="mt-16 grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+                    ${Object.values(CONTENT_MAP).map(lang => `
+                        <div class="bg-white p-6 rounded-xl shadow-md border-t-4 ${lang.color}">
+                            <i data-lucide="${lang.icon}" class="w-8 h-8 ${lang.accent} mb-3"></i>
+                            <h3 class="text-xl font-bold text-gray-900 mb-2">${lang.name}</h3>
+                            <p class="text-gray-600">Instant AI Tutor available.</p>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function renderAboutPage() {
+            return `
+                <div class="bg-white p-8 rounded-xl shadow-lg max-w-4xl mx-auto">
+                    <h2 class="text-4xl font-bold text-gray-900 mb-6 border-b pb-2">About Easy Learn</h2>
+                    <p class="text-lg text-gray-700 mb-4">
+                        Easy Learn focuses solely on providing an instantaneous, AI-driven environment for language practice. Forget structured lessons—just ask your question and practice!
+                    </p>
+                    
+                    <div class="space-y-6 mt-8">
+                        <div>
+                            <h3 class="text-2xl font-semibold text-indigo-600 mb-2">AI-Powered Practice</h3>
+                            <p class="text-gray-600">
+                                We use advanced Large Language Models (Gemini API) to give you real-time explanations, contextual examples, and instant feedback tailored to your questions in your chosen language.
+                            </p>
+                        </div>
+
+                        <!-- NEW SECTION FOR SHARING THE PUBLIC LINK -->
+                        <div>
+                            <h3 class="text-2xl font-semibold text-indigo-600 mb-2">Share Your Public Link</h3>
+                            <p class="text-gray-600 mb-4">
+                                Once you host this file as <code>index.html</code> on GitHub Pages, this is the format of the **shareable URL** you can send to your manager:
+                            </p>
+                            <div class="p-4 bg-gray-100 rounded-lg border border-dashed border-gray-300">
+                                <p class="text-sm font-mono text-gray-800 break-all">
+                                    <i data-lucide="link" class="w-4 h-4 inline mr-2 text-indigo-500"></i>
+                                    <span class="font-bold">YOUR PUBLIC URL WILL LOOK LIKE:</span> 
+                                    <a href="https://your-github-username.github.io/repo-name/" target="_blank" class="text-indigo-600 hover:underline">
+                                        https://your-github-username.github.io/repo-name/
+                                    </a>
+                                </p>
+                                <p class="text-xs text-red-500 mt-2">
+                                    *Remember to replace 'your-github-username' and 'repo-name' with your actual values after deployment.*
+                                </p>
+                            </div>
+                        </div>
+
+                        <div>
+                            <h3 class="text-2xl font-semibold text-indigo-600 mb-2">Our Languages</h3>
+                            <p class="text-gray-600">
+                                We offer dedicated AI tutors for **English, Hindi, Telugu, and Tamil**.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderLoginPage() {
+            return `
+                <div class="max-w-md mx-auto py-16">
+                    <div class="bg-white p-8 rounded-xl shadow-2xl text-center border-t-4 border-indigo-500">
+                        <i data-lucide="user-plus" class="w-10 h-10 mx-auto text-indigo-500 mb-4"></i>
+                        <h2 class="text-3xl font-bold text-gray-900 mb-4">Welcome to Easy Learn</h2>
+                        <p class="text-gray-600 mb-6">
+                            Start your personalized language practice instantly. We'll create a temporary secure session for you.
+                        </p>
+                        <button class="w-full bg-indigo-600 text-white text-lg font-semibold px-8 py-3 rounded-full hover:bg-indigo-700 transition duration-300 shadow-lg"
+                            onclick="handleLogin()">
+                            Start Learning <i data-lucide="log-in" class="inline w-5 h-5 ml-2"></i>
+                        </button>
+                        <p class="text-sm text-gray-500 mt-4">No password needed. Your session is temporary.</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderDashboardPage() {
+            const languages = Object.entries(CONTENT_MAP);
+
+            return `
+                <div class="bg-white p-8 rounded-xl shadow-lg">
+                    <h2 class="text-4xl font-bold text-gray-900 mb-2">Select Your Language Tutor</h2>
+                    <p class="text-lg text-gray-600 mb-8">
+                        You are currently logged in with ID: <code class="font-mono bg-gray-100 p-1 rounded text-sm text-indigo-700">${userId}</code>. Click a language to start chatting.
+                    </p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        ${languages.map(([key, lang]) => `
+                            <div class="bg-gray-50 rounded-xl p-6 shadow-md border border-gray-200 hover:shadow-xl transition duration-300 cursor-pointer flex flex-col items-center text-center ${lang.accent}"
+                                 onclick="navigate('learn', '${key}')">
+                                <i data-lucide="${lang.icon}" class="w-10 h-10 ${lang.accent} mb-4"></i>
+                                <h3 class="text-2xl font-bold text-gray-900 mb-2">${lang.name}</h3>
+                                <p class="text-gray-500 mb-4">Instant AI Tutor</p>
+                                <button class="mt-2 text-white ${lang.color} px-4 py-2 rounded-full font-medium shadow-md hover:shadow-lg">Start Chatting</button>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+
+        function renderLearnPage() {
+            const langKey = window.appState.selectedLanguage;
+            const content = CONTENT_MAP[langKey];
+
+            if (!content) {
+                 return `<div class="p-8 text-center text-red-500">Error: Please select a language from the <a href="#" onclick="navigate('dashboard')" class="text-indigo-600 hover:underline">Dashboard</a>.</div>`;
+            }
+
+            return `
+                <div class="max-w-4xl mx-auto">
+                    <div class="bg-white p-6 rounded-xl shadow-lg flex flex-col h-[80vh] border-t-4 border-indigo-500">
+                        <div class="flex justify-between items-center mb-4 border-b pb-3">
+                            <h1 class="text-3xl font-bold text-gray-900 flex items-center space-x-2">
+                                <i data-lucide="robot" class="w-7 h-7 text-indigo-600"></i>
+                                <span>AI Tutor: ${content.name}</span>
+                            </h1>
+                            <button class="text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center" onclick="navigate('dashboard')">
+                                <i data-lucide="arrow-left" class="w-4 h-4 mr-1"></i> Change Language
+                            </button>
+                        </div>
+
+                        <div id="ai-chat-history" class="flex-grow overflow-y-auto custom-scrollbar p-2 mb-4 bg-gray-50 rounded-lg space-y-4">
+                            <!-- Initial welcome message is rendered here by renderChat() -->
+                        </div>
+
+                        <form id="ai-chat-form" onsubmit="handleChatSubmit(event)" class="flex items-center space-x-3">
+                            <input type="text" id="ai-chat-input" placeholder="Ask a question about ${content.name}..." required
+                                class="flex-grow p-3 border border-gray-300 rounded-full focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-200"
+                                ${window.appState.isChatLoading ? 'disabled' : ''}>
+                            <button type="submit"
+                                class="bg-indigo-600 text-white p-3 rounded-full hover:bg-indigo-700 transition duration-150 shadow-md disabled:bg-indigo-300"
+                                ${window.appState.isChatLoading ? 'disabled' : ''}>
+                                <i data-lucide="send" class="w-5 h-5"></i>
+                            </button>
+                        </form>
+                        <p class="text-xs text-gray-500 mt-2">The AI Tutor uses Google Search for current, grounded information.</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function handleChatSubmit(event) {
+            event.preventDefault();
+            const inputElement = document.getElementById('ai-chat-input');
+            const question = inputElement.value.trim();
+            if (question) {
+                askAIQuestion(question);
+                inputElement.value = ''; // Clear input
+            }
+        }
+
+        function renderChat() {
+            const chatHistoryDiv = document.getElementById('ai-chat-history');
+            if (!chatHistoryDiv) return;
+
+            // Define the welcome message based on the currently selected language
+            const welcomeMessage = `
+                <div class="flex justify-start">
+                    <div class="bg-gray-100 text-gray-800 p-3 rounded-xl rounded-tl-none max-w-xs md:max-w-md shadow-md">
+                        <strong class="text-indigo-600">AI Tutor:</strong>
+                        <p>Hello! I'm your tutor for **${CONTENT_MAP[window.appState.selectedLanguage].name}**. Ask me any question you have about grammar, vocabulary, or culture. Feel free to practice speaking here too!</p>
+                    </div>
+                </div>
+            `;
+            
+            // Map the history messages
+            const chatMessages = window.appState.chatHistory.map(message => {
+                if (message.role === 'user') {
+                    return `
+                        <div class="flex justify-end">
+                            <div class="bg-indigo-500 text-white p-3 rounded-xl rounded-br-none max-w-xs md:max-w-md shadow-md">
+                                ${message.text}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    // AI Message
+                    let sourcesHtml = '';
+                    if (message.sources && message.sources.length > 0) {
+                        const uniqueSources = Array.from(new Set(message.sources.map(s => s.title))).slice(0, 3);
+                        sourcesHtml = `
+                            <div class="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-500">
+                                <p class="font-semibold mb-1">Sources:</p>
+                                ${uniqueSources.map(title => `<span class="block italic">${title}</span>`).join('')}
+                            </div>
+                        `;
+                    }
+
+                    return `
+                        <div class="flex justify-start">
+                            <div class="bg-gray-100 text-gray-800 p-3 rounded-xl rounded-tl-none max-w-xs md:max-w-md shadow-md">
+                                <strong class="text-indigo-600">AI Tutor:</strong>
+                                <p class="whitespace-pre-wrap">${message.text}</p>
+                                ${sourcesHtml}
+                            </div>
+                        </div>
+                    `;
+                }
+            }).join('');
+            
+            chatHistoryDiv.innerHTML = welcomeMessage + chatMessages;
+
+
+            // Scroll to bottom
+            chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+            lucide.createIcons();
+        }
+
+
+        // Global functions exposed to window for HTML event handlers
+        window.navigate = navigate;
+        window.toggleMobileMenu = toggleMobileMenu;
+        window.handleChatSubmit = handleChatSubmit;
+        window.askAIQuestion = askAIQuestion; 
+        window.handleLogin = handleLogin;
+        window.handleLogout = handleLogout;
+
+
+        // Initialize App on load
+        window.onload = initializeFirebase;
+    </script>
+    <a href="#" class="hover:text-indigo-600 transition duration-150" onclick="navigate('home')">Home</a>
+</body>
+</html>
