@@ -14,6 +14,7 @@
             /* Colorful gradient background */
             background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 25%, #f9d423 50%, #f83600 75%, #43cea2 100%);
             background-attachment: fixed;
+            min-height: 100vh;
         }
         /* Custom scrollbar for chat/content */
         .custom-scrollbar::-webkit-scrollbar {
@@ -26,6 +27,44 @@
     </style>
 </head>
 <body class="min-h-screen flex flex-col">
+    <div id="login-modal" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center z-50 hidden">
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md relative">
+            <button onclick="closeLoginModal()" class="absolute top-2 right-2 text-gray-400 hover:text-indigo-600 text-2xl">&times;</button>
+            <h2 id="form-title" class="text-2xl font-bold mb-4 text-center">Sign In</h2>
+            <form id="signin-form">
+                <label for="signin-username" class="block text-gray-700 mb-1">Username</label>
+                <input type="text" id="signin-username" name="signin-username" required class="w-full mb-3 p-2 border rounded">
+                <label for="signin-password" class="block text-gray-700 mb-1">Password</label>
+                <input type="password" id="signin-password" name="signin-password" required class="w-full mb-4 p-2 border rounded">
+                <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded mb-2 hover:bg-indigo-700 transition">Sign In</button>
+            </form>
+            <form id="signup-form" style="display:none;">
+                <label for="signup-username" class="block text-gray-700 mb-1">Username</label>
+                <input type="text" id="signup-username" name="signup-username" required class="w-full mb-3 p-2 border rounded">
+                <label for="signup-password" class="block text-gray-700 mb-1">Password</label>
+                <input type="password" id="signup-password" name="signup-password" required class="w-full mb-3 p-2 border rounded">
+                <label for="signup-confirm" class="block text-gray-700 mb-1">Confirm Password</label>
+                <input type="password" id="signup-confirm" name="signup-confirm" required class="w-full mb-4 p-2 border rounded">
+                <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded mb-2 hover:bg-indigo-700 transition">Sign Up</button>
+            </form>
+            <span class="block text-center text-indigo-600 cursor-pointer mt-2 underline hover:text-indigo-800" id="toggle-link">Don't have an account? Sign up</span>
+            
+            <div class="mt-4 pt-4 border-t border-gray-200">
+                <button onclick="handleGuestLogin()" class="w-full bg-gray-500 text-white text-md font-semibold py-2 rounded-full hover:bg-gray-600 transition duration-300 shadow">
+                    Quick Start (Anonymous)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="profile-modal" class="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center z-50 hidden">
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md relative text-center">
+            <button onclick="closeProfileModal()" class="absolute top-2 right-2 text-gray-400 hover:text-indigo-600 text-2xl">&times;</button>
+            <h2 class="text-2xl font-bold mb-4">User Profile</h2>
+            <div class="text-lg text-indigo-700 mb-6" id="username-display"></div>
+            <button onclick="logoutLocalUser()" class="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 transition">Logout</button>
+        </div>
+    </div>
 
     <header class="bg-white shadow-lg sticky top-0 z-10">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
@@ -37,8 +76,8 @@
                 <a href="#" class="hover:text-indigo-600 transition duration-150" onclick="navigate('home')">Home</a>
                 <a href="#" class="hover:text-indigo-600 transition duration-150" id="dashboard-nav-link">Dashboard</a>
                 <a href="#" class="hover:text-indigo-600 transition duration-150" onclick="navigate('about')">About</a>
-                <a href="profile.html" class="hover:text-indigo-600 transition duration-150">Profile</a>
-                <a href="login.html" class="text-white bg-indigo-500 hover:bg-indigo-600 px-4 py-2 rounded-full shadow-md transition duration-150" id="auth-button">Login</a>
+                <a href="#" class="hover:text-indigo-600 transition duration-150" onclick="openProfileModal()">Profile</a>
+                <a href="#" class="text-white bg-indigo-500 hover:bg-indigo-600 px-4 py-2 rounded-full shadow-md transition duration-150" id="auth-button" onclick="openLoginModal()">Login</a>
             </nav>
             <button id="mobile-menu-button" class="md:hidden p-2 text-gray-700 hover:text-indigo-600" onclick="toggleMobileMenu()">
                 <i data-lucide="menu" class="w-6 h-6"></i>
@@ -49,8 +88,8 @@
                 <a href="#" class="block px-3 py-2 rounded-md hover:bg-indigo-50" onclick="navigate('home')">Home</a>
                 <a href="#" class="block px-3 py-2 rounded-md hover:bg-indigo-50" id="dashboard-nav-link-mobile">Dashboard</a>
                 <a href="#" class="block px-3 py-2 rounded-md hover:bg-indigo-50" onclick="navigate('about')">About</a>
-                <a href="profile.html" class="block px-3 py-2 rounded-md hover:bg-indigo-50">Profile</a>
-                <a href="login.html" class="block px-3 py-2 rounded-md text-white bg-indigo-500 text-center rounded-full mt-2" id="auth-button-mobile">Login</a>
+                <a href="#" class="block px-3 py-2 rounded-md hover:bg-indigo-50" onclick="openProfileModal()">Profile</a>
+                <a href="#" class="block px-3 py-2 rounded-md text-white bg-indigo-500 text-center rounded-full mt-2" id="auth-button-mobile" onclick="openLoginModal()">Login</a>
             </nav>
         </div>
     </header>
@@ -63,7 +102,6 @@
             <p class="mt-4 text-gray-700 font-semibold">Loading Easy Learn...</p>
         </div>
     </div>
-    
     <div id="ai-loading-modal" class="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50 hidden">
         <div class="flex flex-col items-center p-8 bg-white rounded-xl shadow-2xl w-full max-w-sm">
             <div class="animate-pulse rounded-full h-10 w-10 bg-indigo-500"></div>
@@ -72,24 +110,177 @@
         </div>
     </div>
 
+    <script>
+        // Mock variables for local dev environment
+        const __app_id = 'test-local-app';
+        const __firebase_config = '{}'; 
+        const __initial_auth_token = null;
+
+        // --- LOGIN/SIGNUP/PROFILE LOGIC (LOCALSTORAGE) - CENTRALIZED FIX ---
+
+        window.openLoginModal = function() {
+            // Reset to Sign In state when opening
+            document.getElementById('signin-form').style.display = 'block';
+            document.getElementById('signup-form').style.display = 'none';
+            document.getElementById('form-title').textContent = 'Sign In';
+            document.getElementById('toggle-link').textContent = "Don't have an account? Sign up";
+            document.getElementById('login-modal').classList.remove('hidden');
+        };
+
+        window.closeLoginModal = function() {
+            document.getElementById('login-modal').classList.add('hidden');
+        };
+
+        window.openProfileModal = function() {
+            const username = localStorage.getItem('easy_learn_logged_in');
+            if (!username) {
+                openLoginModal(); 
+                return;
+            }
+            document.getElementById('username-display').textContent = 'Username: ' + username;
+            document.getElementById('profile-modal').classList.remove('hidden');
+        };
+
+        window.closeProfileModal = function() {
+            document.getElementById('profile-modal').classList.add('hidden');
+        };
+
+        // This calls the main module's handleLogout
+        window.logoutLocalUser = function() {
+            if (typeof handleLogout === 'function') {
+                handleLogout(); 
+            } else {
+                localStorage.removeItem('easy_learn_logged_in');
+                navigate('home');
+            }
+            closeProfileModal();
+        };
+
+        function getUsers() {
+            const users = localStorage.getItem('easy_learn_users');
+            return users ? JSON.parse(users) : {};
+        }
+
+        function saveUsers(users) {
+            localStorage.setItem('easy_learn_users', JSON.stringify(users));
+        }
+
+        // --- NEW CENTRALIZED LOGIN SUCCESS HANDLER ---
+        window.handleLocalLoginSuccess = function(username) {
+            localStorage.setItem('easy_learn_logged_in', username);
+            
+            // CRITICAL FIX: Inform the module script to update its private userId variable
+            if (typeof updateGlobalUserId === 'function') {
+                updateGlobalUserId(username);
+            }
+            
+            // Update UI and navigate to dashboard
+            if (typeof updateUIOnAuth === 'function' && typeof navigate === 'function') {
+                updateUIOnAuth();
+                navigate('dashboard');
+            }
+            closeLoginModal();
+        };
+        // --- END NEW CENTRALIZED LOGIN SUCCESS HANDLER ---
+
+
+        // --- ATTACH FORM SUBMISSION LISTENERS (UPDATED TO USE CENTRALIZED HANDLER) ---
+        document.addEventListener('DOMContentLoaded', function() {
+            const signinForm = document.getElementById('signin-form');
+            const signupForm = document.getElementById('signup-form');
+            const toggleLink = document.getElementById('toggle-link');
+            const formTitle = document.getElementById('form-title');
+
+            if (!signinForm || !signupForm) return;
+
+            // Toggle logic (unchanged)
+            toggleLink.onclick = function() {
+                if (signinForm.style.display !== 'none') {
+                    signinForm.style.display = 'none';
+                    signupForm.style.display = 'block';
+                    formTitle.textContent = 'Sign Up';
+                    toggleLink.textContent = 'Already have an account? Sign In';
+                } else {
+                    signinForm.style.display = 'block';
+                    signupForm.style.display = 'none';
+                    formTitle.textContent = 'Sign In';
+                    toggleLink.textContent = "Don't have an account? Sign Up";
+                }
+            };
+
+            // Sign In Submission - FIXED
+            signinForm.onsubmit = function(e) {
+                e.preventDefault();
+                const username = document.getElementById('signin-username').value.trim();
+                const password = document.getElementById('signin-password').value;
+                const users = getUsers();
+
+                if (users[username] && users[username] === password) {
+                    window.handleLocalLoginSuccess(username); 
+                } else {
+                    alert('Invalid username or password.');
+                }
+            };
+
+            // Sign Up Submission - FIXED
+            signupForm.onsubmit = function(e) {
+                e.preventDefault();
+                const username = document.getElementById('signup-username').value.trim();
+                const password = document.getElementById('signup-password').value;
+                const confirm = document.getElementById('signup-confirm').value;
+
+                if (password !== confirm) {
+                    alert('Passwords do not match.');
+                    return;
+                }
+                if (!username || !password) {
+                    alert('Please fill all fields.');
+                    return;
+                }
+                
+                const users = getUsers();
+                if (users[username]) {
+                    alert('Username already exists. Please choose another.');
+                    return;
+                }
+
+                // 1. Save new user
+                users[username] = password;
+                saveUsers(users);
+
+                // 2. Log in immediately
+                window.handleLocalLoginSuccess(username);
+                alert('Sign up successful! You are now logged in.');
+            };
+        });
+    </script>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signOut, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        // Firestore is no longer needed since progress saving is removed, but keeping a minimal import for robustness if needed later
         import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"; 
 
         // Global variables for Firebase services and state
-        let app = null; // Changed to null initialization
+        let app = null;
         let db;
         let auth;
-        let userId = null;
+        // CRITICAL FIX: Initialize userId from localStorage on module load
+        let userId = localStorage.getItem('easy_learn_logged_in'); 
         let isAuthReady = false;
 
-        // --- GLOBAL ENVIRONMENT VARIABLES (MANDATORY USE) ---
+        // --- GLOBAL ENVIRONMENT VARIABLES ---
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-easy-learn-app-id';
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
         // --- END OF GLOBAL ENVIRONMENT VARIABLES ---
+
+        // Expose global functions needed by the script block above
+        window.updateUIOnAuth = updateUIOnAuth;
+        window.navigate = navigate;
+        window.handleLogout = handleLogout;
+        window.handleGuestLogin = handleGuestLogin;
+        // CRITICAL FIX: Expose function to allow the local script to update internal userId
+        window.updateGlobalUserId = (newId) => { userId = newId; }; 
 
         // Global application state
         window.appState = {
@@ -99,7 +290,7 @@
             isChatLoading: false
         };
 
-        // Static Language Content Data (Lessons/Tasks/Quizzes removed)
+        // Static Language Content Data
         const CONTENT_MAP = {
             english: { name: "English", icon: "book-open", color: "bg-green-500", accent: "text-green-600" },
             hindi: { name: "Hindi (हिंदी)", icon: "landmark", color: "bg-red-500", accent: "text-red-600" },
@@ -114,20 +305,18 @@
                 const loadingOverlay = document.getElementById('loading-overlay');
                 loadingOverlay.classList.remove('hidden');
 
-                // Check if config is provided (running in a host environment)
                 if (Object.keys(firebaseConfig).length > 0) {
                     app = initializeApp(firebaseConfig);
                     db = getFirestore(app);
                     auth = getAuth(app);
 
-                    // Listen for Auth state changes
                     onAuthStateChanged(auth, (user) => {
                         if (user) {
+                            // Firebase user takes precedence
                             userId = user.uid;
-                            console.log("Auth state changed. User ID:", userId);
-                        } else {
-                            userId = null;
-                            console.log("User signed out.");
+                        } else if (!localStorage.getItem('easy_learn_logged_in')) { 
+                            // Only clear userId if Firebase signs out AND there's no local login
+                             userId = null;
                         }
                         isAuthReady = true;
                         updateUIOnAuth();
@@ -135,14 +324,14 @@
                         loadingOverlay.classList.add('hidden');
                     });
 
-                    // Attempt to sign in if a token exists
                     if (initialAuthToken) {
                         await signInWithCustomToken(auth, initialAuthToken);
                     }
                 } else {
                     // Running locally without config
-                    console.warn("Firebase config is missing. Running in local development mode.");
-                    auth = { currentUser: null }; // Mock auth object
+                    if (!userId) { 
+                        userId = null;
+                    }
                     isAuthReady = true;
                     updateUIOnAuth();
                     renderApp();
@@ -155,79 +344,43 @@
             }
         }
 
-        async function handleLogin() {
-            // Check if Firebase was initialized (i.e., if 'app' is not null)
-            if (!app) {
-                // --- LOCAL DEV LOGIN SIMULATION ---
-                // If running locally without config, simulate a successful anonymous login
-                userId = 'LOCAL_DEV_USER_' + Math.random().toString(16).slice(2, 8).toUpperCase();
-                isAuthReady = true;
-                console.log("Simulating local anonymous login:", userId);
-
-                // Update UI state and navigate
-                updateUIOnAuth();
-                renderApp();
-                navigate('dashboard');
-                
-                // Show a brief message to the user that this is a simulated login
-                const modalHtml = `
-                    <div id="custom-alert-modal" class="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50">
-                        <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center border-t-4 border-yellow-500">
-                            <h3 class="text-xl font-bold text-yellow-600 mb-3">Local Mode Active</h3>
-                            <p class="text-gray-700 mb-4">Authentication has been successfully simulated for local testing.</p>
-                            <button class="bg-indigo-600 text-white px-4 py-2 rounded-full hover:bg-indigo-700" onclick="document.getElementById('custom-alert-modal').remove()">
-                                Continue
-                            </button>
-                        </div>
-                    </div>
-                `;
-                document.body.insertAdjacentHTML('beforeend', modalHtml);
-                // --- END OF SIMULATION ---
-                return;
+        async function handleGuestLogin() {
+            const guestUsername = 'Guest_' + Math.random().toString(16).slice(2, 8).toUpperCase();
+            
+            // Simulate local login for consistency
+            window.handleLocalLoginSuccess(guestUsername);
+            
+            // Firebase part (kept for completeness, but local mode handles the user state)
+            if (app) {
+                 try {
+                    await signInAnonymously(auth);
+                 } catch (error) {
+                    console.error("Firebase Guest Login failed:", error);
+                 }
             }
-
-            // Real Firebase login attempt
-            try {
-                // Use anonymous sign-in to get a persistent user ID
-                await signInAnonymously(auth);
-                navigate('dashboard');
-            } catch (error) {
-                console.error("Login failed:", error);
-                const modalHtml = `
-                    <div id="custom-alert-modal" class="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50">
-                        <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
-                            <h3 class="text-xl font-bold text-red-600 mb-3">Login Failed</h3>
-                            <p class="text-gray-700 mb-4">Login failed. Please try again.</p>
-                            <button class="bg-indigo-600 text-white px-4 py-2 rounded-full hover:bg-indigo-700" onclick="document.getElementById('custom-alert-modal').remove()">
-                                OK
-                            </button>
-                        </div>
-                    </div>
-                `;
-                document.body.insertAdjacentHTML('beforeend', modalHtml);
-            }
+            
+            closeLoginModal();
         }
 
         async function handleLogout() {
-            if (!auth || !app) {
-                // Handle logout simulation for local dev
-                userId = null;
-                isAuthReady = true;
-                window.appState.selectedLanguage = null;
-                window.appState.chatHistory = [];
-                updateUIOnAuth();
-                navigate('login');
-                console.log("Simulated local logout.");
-                return;
+            localStorage.removeItem('easy_learn_logged_in'); 
+            
+            // Update internal state
+            userId = null;
+            window.appState.selectedLanguage = null;
+            window.appState.chatHistory = [];
+
+            if (auth && auth.currentUser) {
+                // Real Firebase logout
+                try {
+                    await signOut(auth);
+                } catch (error) {
+                    console.error("Firebase Logout failed:", error);
+                }
             }
-            try {
-                await signOut(auth);
-                window.appState.selectedLanguage = null; // Clear language selection
-                window.appState.chatHistory = []; // Clear chat
-                navigate('login');
-            } catch (error) {
-                console.error("Logout failed:", error);
-            }
+            
+            updateUIOnAuth();
+            navigate('login');
         }
 
         function updateUIOnAuth() {
@@ -236,15 +389,17 @@
             const dashboardNavLink = document.getElementById('dashboard-nav-link');
             const dashboardNavLinkMobile = document.getElementById('dashboard-nav-link-mobile');
 
+            // Use the current internal userId state
+            const currentUserId = userId; 
+            
             if (!authButton || !dashboardNavLink) return;
 
             // Set Dashboard link target
-            const dashboardAction = () => navigate(userId ? 'dashboard' : 'login');
+            const dashboardAction = () => navigate(currentUserId ? 'dashboard' : 'login');
             dashboardNavLink.onclick = dashboardAction;
             dashboardNavLinkMobile.onclick = () => { dashboardAction(); toggleMobileMenu(); };
 
-
-            if (userId) {
+            if (currentUserId) {
                 // Logged In
                 authButton.textContent = 'Logout';
                 authButton.onclick = handleLogout;
@@ -254,19 +409,19 @@
             } else {
                 // Logged Out
                 authButton.textContent = 'Login';
-                authButton.onclick = () => navigate('login');
+                authButton.onclick = openLoginModal; 
                 authButtonMobile.textContent = 'Login';
-                authButtonMobile.onclick = () => { navigate('login'); toggleMobileMenu(); };
+                authButtonMobile.onclick = () => { openLoginModal(); toggleMobileMenu(); };
 
-                // Redirect to login if user tries to access a restricted page while logged out
                 if (window.appState.currentPage === 'dashboard' || window.appState.currentPage === 'learn') {
-                    window.appState.currentPage = 'login';
+                    window.appState.currentPage = 'home'; 
+                    renderApp();
                 }
             }
         }
 
         // --- AI (GEMINI) API INTERACTION ---
-
+       
         const AI_MODEL_NAME = "gemini-2.5-flash-preview-05-20";
         const AI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${AI_MODEL_NAME}:generateContent?key=`;
 
@@ -304,7 +459,7 @@
                 systemInstruction: { parts: [{ text: systemPrompt }] },
             };
 
-            const apiKey = "AIzaSyAoI-zcoSJY9IDLxYiuygKBnTaMjidVIwM"; // API key updated by user
+            const apiKey = "AIzaSyBr8bUWi8Rk9ycgffKrqSJu7k0kcxXMwpU"; // API key updated by user
 
             let responseText = "Sorry, I couldn't connect to the AI tutor. Please try again later.";
             let sources = [];
@@ -356,43 +511,30 @@
             renderChat();
         }
 
-        // --- UI/RENDERING FUNCTIONS ---
+        // --- UI/RENDERING FUNCTIONS (UNCHANGED) ---
 
         function navigate(page, langKey = null) {
             window.appState.currentPage = page;
 
             if (page === 'learn' && langKey) {
                 if (!userId) {
-                    // Use custom modal instead of alert
-                    const modalHtml = `
-                        <div id="custom-alert-modal" class="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50">
-                            <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
-                                <h3 class="text-xl font-bold text-red-600 mb-3">Login Required</h3>
-                                <p class="text-gray-700 mb-4">Please log in first to start practicing.</p>
-                                <button class="bg-indigo-600 text-white px-4 py-2 rounded-full hover:bg-indigo-700" onclick="document.getElementById('custom-alert-modal').remove(); navigate('login')">
-                                    Go to Login
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                    document.body.insertAdjacentHTML('beforeend', modalHtml);
-                    return navigate('login');
+                    openLoginModal();
+                    return navigate('home');
                 }
                 window.appState.selectedLanguage = langKey;
-                window.appState.chatHistory = []; // Clear chat when starting a new language
+                window.appState.chatHistory = []; 
             } else if (page === 'dashboard' && !userId) {
-                return navigate('login');
+                return navigate('home');
             }
             
-            // Close mobile menu if open
             const mobileMenu = document.getElementById('mobile-menu');
             if (mobileMenu && !mobileMenu.classList.contains('hidden')) {
                 mobileMenu.classList.add('hidden');
             }
             renderApp();
-            window.scrollTo(0, 0); // Scroll to top on navigation
+            window.scrollTo(0, 0);
         }
-
+        
         function toggleMobileMenu() {
             document.getElementById('mobile-menu').classList.toggle('hidden');
         }
@@ -401,7 +543,6 @@
             const contentDiv = document.getElementById('app-content');
             let html = '';
 
-            // Ensure authenticated users are redirected away from login/home if they hit the button
             if (userId && window.appState.currentPage === 'login') {
                 window.appState.currentPage = 'dashboard';
             }
@@ -414,7 +555,8 @@
                     html = renderAboutPage();
                     break;
                 case 'login':
-                    html = renderLoginPage();
+                    openLoginModal();
+                    html = renderHomePage();
                     break;
                 case 'dashboard':
                     html = renderDashboardPage();
@@ -427,19 +569,18 @@
             }
 
             contentDiv.innerHTML = html;
-            // Re-render Lucide icons after setting innerHTML
             lucide.createIcons();
 
-            // Special handling for the chat window on the Learn Page
             if (window.appState.currentPage === 'learn') {
                 renderChat();
             }
         }
 
-        // --- PAGE RENDERERS ---
+
+        // --- PAGE RENDERERS (UNCHANGED) ---
 
         function renderHomePage() {
-            return `
+             return `
                 <div class="text-center py-20 bg-indigo-50 rounded-xl shadow-lg">
                     <i data-lucide="zap" class="w-12 h-12 mx-auto text-indigo-500 mb-4"></i>
                     <h1 class="text-5xl font-extrabold text-gray-900 leading-tight mb-4">
@@ -449,7 +590,7 @@
                         Ask our AI Tutor anything about English, Hindi, Telugu, or Tamil. Get instant, real-time feedback and practice.
                     </p>
                     <button class="bg-indigo-600 text-white text-lg font-semibold px-8 py-3 rounded-full hover:bg-indigo-700 transition duration-300 shadow-xl transform hover:scale-[1.02]"
-                        onclick="navigate('${userId ? 'dashboard' : 'login'}')">
+                        onclick="${userId ? "navigate('dashboard')" : "openLoginModal();"}">
                         ${userId ? 'Go to Dashboard' : 'Start Learning Now'} <i data-lucide="arrow-right" class="inline w-5 h-5 ml-1"></i>
                     </button>
                 </div>
@@ -466,7 +607,7 @@
         }
 
         function renderAboutPage() {
-            return `
+             return `
                 <div class="bg-white p-8 rounded-xl shadow-lg max-w-4xl mx-auto">
                     <h2 class="text-4xl font-bold text-gray-900 mb-6 border-b pb-2">About Easy Learn</h2>
                     <p class="text-lg text-gray-700 mb-4">
@@ -481,26 +622,6 @@
                             </p>
                         </div>
 
-                        <!-- NEW SECTION FOR SHARING THE PUBLIC LINK -->
-                        <div>
-                            <h3 class="text-2xl font-semibold text-indigo-600 mb-2">Share Your Public Link</h3>
-                            <p class="text-gray-600 mb-4">
-                                Once you host this file as <code>index.html</code> on GitHub Pages, this is the format of the **shareable URL** you can send to your manager:
-                            </p>
-                            <div class="p-4 bg-gray-100 rounded-lg border border-dashed border-gray-300">
-                                <p class="text-sm font-mono text-gray-800 break-all">
-                                    <i data-lucide="link" class="w-4 h-4 inline mr-2 text-indigo-500"></i>
-                                    <span class="font-bold">YOUR PUBLIC URL WILL LOOK LIKE:</span> 
-                                    <a href="https://your-github-username.github.io/repo-name/" target="_blank" class="text-indigo-600 hover:underline">
-                                        https://your-github-username.github.io/repo-name/
-                                    </a>
-                                </p>
-                                <p class="text-xs text-red-500 mt-2">
-                                    *Remember to replace 'your-github-username' and 'repo-name' with your actual values after deployment.*
-                                </p>
-                            </div>
-                        </div>
-
                         <div>
                             <h3 class="text-2xl font-semibold text-indigo-600 mb-2">Our Languages</h3>
                             <p class="text-gray-600">
@@ -512,43 +633,31 @@
             `;
         }
 
-        function renderLoginPage() {
-            return `
-                <div class="max-w-md mx-auto py-16">
-                    <div class="bg-white p-8 rounded-xl shadow-2xl text-center border-t-4 border-indigo-500">
-                        <i data-lucide="user-plus" class="w-10 h-10 mx-auto text-indigo-500 mb-4"></i>
-                        <h2 class="text-3xl font-bold text-gray-900 mb-4">Welcome to Easy Learn</h2>
-                        <p class="text-gray-600 mb-6">
-                            Start your personalized language practice instantly. We'll create a temporary secure session for you.
-                        </p>
-                        <button class="w-full bg-indigo-600 text-white text-lg font-semibold px-8 py-3 rounded-full hover:bg-indigo-700 transition duration-300 shadow-lg"
-                            onclick="handleLogin()">
-                            Start Learning <i data-lucide="log-in" class="inline w-5 h-5 ml-2"></i>
-                        </button>
-                        <p class="text-sm text-gray-500 mt-4">No password needed. Your session is temporary.</p>
-                    </div>
-                </div>
-            `;
-        }
-
         function renderDashboardPage() {
-            const languages = Object.entries(CONTENT_MAP);
+            const localUser = localStorage.getItem('easy_learn_logged_in');
+            const displayName = localUser ? localUser : (userId ? 'Guest' : 'User');
 
             return `
-                <div class="bg-white p-8 rounded-xl shadow-lg">
-                    <h2 class="text-4xl font-bold text-gray-900 mb-2">Select Your Language Tutor</h2>
-                    <p class="text-lg text-gray-600 mb-8">
-                        You are currently logged in with ID: <code class="font-mono bg-gray-100 p-1 rounded text-sm text-indigo-700">${userId}</code>. Click a language to start chatting.
-                    </p>
+                <div class="max-w-7xl mx-auto py-10">
+                    <div class="bg-white p-8 rounded-xl shadow-xl mb-10 text-center">
+                        <h1 class="text-4xl font-extrabold text-gray-900 mb-2">
+                            Welcome, <span class="text-indigo-600">${displayName}</span>!
+                        </h1>
+                        <p class="text-xl text-gray-600">Select a language to begin your practice with the AI Tutor.</p>
+                    </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                        ${languages.map(([key, lang]) => `
-                            <div class="bg-gray-50 rounded-xl p-6 shadow-md border border-gray-200 hover:shadow-xl transition duration-300 cursor-pointer flex flex-col items-center text-center ${lang.accent}"
-                                 onclick="navigate('learn', '${key}')">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-6">Choose Your Tutor</h2>
+
+                    <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+                        ${Object.entries(CONTENT_MAP).map(([key, lang]) => `
+                            <div class="bg-white p-6 rounded-xl shadow-lg border-b-4 ${lang.color} flex flex-col items-center text-center transition duration-300 hover:shadow-2xl hover:scale-[1.03]">
                                 <i data-lucide="${lang.icon}" class="w-10 h-10 ${lang.accent} mb-4"></i>
-                                <h3 class="text-2xl font-bold text-gray-900 mb-2">${lang.name}</h3>
-                                <p class="text-gray-500 mb-4">Instant AI Tutor</p>
-                                <button class="mt-2 text-white ${lang.color} px-4 py-2 rounded-full font-medium shadow-md hover:shadow-lg">Start Chatting</button>
+                                <h3 class="text-2xl font-bold text-gray-900 mb-3">${lang.name}</h3>
+                                <p class="text-gray-600 mb-4 flex-grow">Start an interactive chat session with your personal AI language tutor.</p>
+                                <button class="mt-4 bg-indigo-600 text-white font-medium px-6 py-2 rounded-full hover:bg-indigo-700 transition duration-150 w-full"
+                                    onclick="navigate('learn', '${key}')">
+                                    Start Practice
+                                </button>
                             </div>
                         `).join('')}
                     </div>
@@ -556,128 +665,133 @@
             `;
         }
 
-
         function renderLearnPage() {
             const langKey = window.appState.selectedLanguage;
-            const content = CONTENT_MAP[langKey];
+            const langData = CONTENT_MAP[langKey];
 
-            if (!content) {
-                 return `<div class="p-8 text-center text-red-500">Error: Please select a language from the <a href="#" onclick="navigate('dashboard')" class="text-indigo-600 hover:underline">Dashboard</a>.</div>`;
+            if (!langData) {
+                return renderDashboardPage();
             }
 
             return `
-                <div class="max-w-4xl mx-auto">
-                    <div class="bg-white p-6 rounded-xl shadow-lg flex flex-col h-[80vh] border-t-4 border-indigo-500">
-                        <div class="flex justify-between items-center mb-4 border-b pb-3">
-                            <h1 class="text-3xl font-bold text-gray-900 flex items-center space-x-2">
-                                <i data-lucide="robot" class="w-7 h-7 text-indigo-600"></i>
-                                <span>AI Tutor: ${content.name}</span>
-                            </h1>
-                            <button class="text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center" onclick="navigate('dashboard')">
-                                <i data-lucide="arrow-left" class="w-4 h-4 mr-1"></i> Change Language
+                <div class="flex flex-col h-[calc(100vh-68px)] max-h-[calc(100vh-68px)] w-full max-w-none mx-0 px-0">
+                    <div class="bg-white p-4 shadow-md flex justify-between items-center flex-shrink-0">
+                        <div class="flex items-center space-x-3">
+                            <button onclick="navigate('dashboard')" class="text-gray-500 hover:text-indigo-600">
+                                <i data-lucide="arrow-left" class="w-6 h-6"></i>
                             </button>
+                            <h2 class="text-2xl font-bold text-gray-900">
+                                AI Tutor: <span class="${langData.accent}">${langData.name}</span>
+                            </h2>
+                        </div>
+                        <button class="text-sm text-indigo-600 hover:underline" onclick="window.appState.chatHistory = []; renderChat();">
+                            Clear Chat
+                        </button>
+                    </div>
+
+                    <div id="chat-window" class="flex-grow p-4 overflow-y-auto custom-scrollbar bg-gray-50 space-y-4">
                         </div>
 
-                        <div id="ai-chat-history" class="flex-grow overflow-y-auto custom-scrollbar p-2 mb-4 bg-gray-50 rounded-lg space-y-4">
-                            <!-- Initial welcome message is rendered here by renderChat() -->
-                        </div>
-
-                        <form id="ai-chat-form" onsubmit="handleChatSubmit(event)" class="flex items-center space-x-3">
-                            <input type="text" id="ai-chat-input" placeholder="Ask a question about ${content.name}..." required
-                                class="flex-grow p-3 border border-gray-300 rounded-full focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-200"
-                                ${window.appState.isChatLoading ? 'disabled' : ''}>
-                            <button type="submit"
-                                class="bg-indigo-600 text-white p-3 rounded-full hover:bg-indigo-700 transition duration-150 shadow-md disabled:bg-indigo-300"
-                                ${window.appState.isChatLoading ? 'disabled' : ''}>
-                                <i data-lucide="send" class="w-5 h-5"></i>
+                    <div class="bg-white p-4 shadow-xl flex-shrink-0 border-t">
+                        <form id="chat-input-form" class="flex space-x-2" onsubmit="event.preventDefault(); submitChatQuestion();">
+                            <input type="text" id="chat-input" placeholder="Ask your ${langData.name} question..." required 
+                                class="flex-grow p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+                            <button type="submit" id="chat-send-button" class="bg-indigo-600 text-white p-3 rounded-xl hover:bg-indigo-700 transition duration-150 flex items-center justify-center disabled:opacity-50">
+                                <i data-lucide="send" class="w-6 h-6"></i>
                             </button>
                         </form>
-                        <p class="text-xs text-gray-500 mt-2">The AI Tutor uses Google Search for current, grounded information.</p>
                     </div>
                 </div>
             `;
         }
-
-        function handleChatSubmit(event) {
-            event.preventDefault();
-            const inputElement = document.getElementById('ai-chat-input');
-            const question = inputElement.value.trim();
-            if (question) {
-                askAIQuestion(question);
-                inputElement.value = ''; // Clear input
-            }
-        }
-
+        
+        // Helper function to render the chat history and scroll to bottom
         function renderChat() {
-            const chatHistoryDiv = document.getElementById('ai-chat-history');
-            if (!chatHistoryDiv) return;
+            const chatWindow = document.getElementById('chat-window');
+            if (!chatWindow) return;
 
-            // Define the welcome message based on the currently selected language
-            const welcomeMessage = `
-                <div class="flex justify-start">
-                    <div class="bg-gray-100 text-gray-800 p-3 rounded-xl rounded-tl-none max-w-xs md:max-w-md shadow-md">
-                        <strong class="text-indigo-600">AI Tutor:</strong>
-                        <p>Hello! I'm your tutor for **${CONTENT_MAP[window.appState.selectedLanguage].name}**. Ask me any question you have about grammar, vocabulary, or culture. Feel free to practice speaking here too!</p>
+            const langKey = window.appState.selectedLanguage;
+            const langName = CONTENT_MAP[langKey]?.name || 'Language Tutor';
+            const isNewChat = window.appState.chatHistory.length === 0;
+
+            let chatHtml = '';
+
+            if (isNewChat) {
+                chatHtml += `
+                    <div class="text-center p-8 bg-white rounded-xl shadow-lg mt-8">
+                        <i data-lucide="message-square" class="w-10 h-10 mx-auto text-indigo-500 mb-4"></i>
+                        <h3 class="text-xl font-bold text-gray-900 mb-2">Start Your ${langName} Practice</h3>
+                        <p class="text-gray-600">Ask me anything! For example: "How do you say 'hello' in ${langName}?" or "Explain the past tense grammar in English."</p>
                     </div>
-                </div>
-            `;
-            
-            // Map the history messages
-            const chatMessages = window.appState.chatHistory.map(message => {
-                if (message.role === 'user') {
-                    return `
-                        <div class="flex justify-end">
-                            <div class="bg-indigo-500 text-white p-3 rounded-xl rounded-br-none max-w-xs md:max-w-md shadow-md">
-                                ${message.text}
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    // AI Message
+                `;
+            } else {
+                chatHtml = window.appState.chatHistory.map(message => {
+                    const isUser = message.role === 'user';
+                    const alignment = isUser ? 'justify-end' : 'justify-start';
+                    const bubbleColor = isUser ? 'bg-indigo-600 text-white' : 'bg-white text-gray-900 border border-gray-200 shadow-md';
+                    const name = isUser ? 'You' : 'AI Tutor';
+                    const icon = isUser ? 'user' : 'bot';
+
                     let sourcesHtml = '';
                     if (message.sources && message.sources.length > 0) {
-                        const uniqueSources = Array.from(new Set(message.sources.map(s => s.title))).slice(0, 3);
                         sourcesHtml = `
-                            <div class="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-500">
-                                <p class="font-semibold mb-1">Sources:</p>
-                                ${uniqueSources.map(title => `<span class="block italic">${title}</span>`).join('')}
+                            <div class="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-500">
+                                <strong>Sources:</strong> 
+                                ${message.sources.slice(0, 3).map(src => `<a href="${src.uri}" target="_blank" class="hover:underline">${src.title || 'Source'}</a>`).join(', ')}
                             </div>
                         `;
                     }
 
                     return `
-                        <div class="flex justify-start">
-                            <div class="bg-gray-100 text-gray-800 p-3 rounded-xl rounded-tl-none max-w-xs md:max-w-md shadow-md">
-                                <strong class="text-indigo-600">AI Tutor:</strong>
-                                <p class="whitespace-pre-wrap">${message.text}</p>
+                        <div class="flex ${alignment}">
+                            <div class="max-w-3/4 p-4 rounded-xl ${bubbleColor} ${isUser ? 'ml-auto' : 'mr-auto'}">
+                                <div class="font-semibold text-sm mb-1 flex items-center space-x-1 ${isUser ? 'text-indigo-200' : 'text-indigo-600'}">
+                                    <i data-lucide="${icon}" class="w-4 h-4"></i>
+                                    <span>${name}</span>
+                                </div>
+                                <div class="prose max-w-none">
+                                    ${message.text.replace(/\n/g, '<br>')}
+                                </div>
                                 ${sourcesHtml}
                             </div>
                         </div>
                     `;
-                }
-            }).join('');
+                }).join('');
+            }
             
-            chatHistoryDiv.innerHTML = welcomeMessage + chatMessages;
-
-
-            // Scroll to bottom
-            chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+            chatWindow.innerHTML = chatHtml;
             lucide.createIcons();
+            
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+
+            const chatInput = document.getElementById('chat-input');
+            const sendButton = document.getElementById('chat-send-button');
+            if (chatInput && sendButton) {
+                if (!window.appState.isChatLoading) {
+                    chatInput.value = '';
+                    chatInput.focus();
+                }
+                sendButton.disabled = window.appState.isChatLoading;
+            }
+
         }
 
+        window.submitChatQuestion = function() {
+            const inputField = document.getElementById('chat-input');
+            const question = inputField.value.trim();
 
-        // Global functions exposed to window for HTML event handlers
-        window.navigate = navigate;
-        window.toggleMobileMenu = toggleMobileMenu;
-        window.handleChatSubmit = handleChatSubmit;
-        window.askAIQuestion = askAIQuestion; 
-        window.handleLogin = handleLogin;
-        window.handleLogout = handleLogout;
+            if (question && !window.appState.isChatLoading) {
+                askAIQuestion(question);
+                inputField.value = '';
+            }
+        };
 
 
-        // Initialize App on load
-        window.onload = initializeFirebase;
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeFirebase();
+        });
+
     </script>
-    <a href="#" class="hover:text-indigo-600 transition duration-150" onclick="navigate('home')">Home</a>
 </body>
 </html>
