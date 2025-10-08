@@ -53,10 +53,10 @@
 
     <main id="app-content" class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 w-full"></main>
 
-    <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
         <div class="flex flex-col items-center p-6 bg-white rounded-xl shadow-2xl">
             <div class="animate-spin rounded-full h-12 w-12 border-4 border-t-4 border-indigo-500 border-opacity-20 border-t-indigo-500"></div>
-            <p class="mt-4 text-gray-700 font-semibold">Loading Easy Learn...</p>
+            <p class="mt-4 text-gray-700 font-semibold" id="loading-message">Loading Easy Learn...</p>
         </div>
     </div>
     
@@ -70,16 +70,22 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signOut, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        // Firestore is no longer needed since progress saving is removed, but keeping a minimal import for robustness if needed later
-        import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"; 
-
-        // Global variables for Firebase services and state
-        let app = null; // Changed to null initialization
-        let db;
-        let auth;
-        let userId = null;
-        let isAuthReady = false;
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            signOut, 
+            signInWithCustomToken, 
+            onAuthStateChanged,
+            createUserWithEmailAndPassword,
+            signInWithEmailAndPassword
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            doc, 
+            setDoc, 
+            onSnapshot, 
+            deleteField 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"; 
 
         // --- GLOBAL ENVIRONMENT VARIABLES (MANDATORY USE) ---
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-easy-learn-app-id';
@@ -87,62 +93,104 @@
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
         // --- END OF GLOBAL ENVIRONMENT VARIABLES ---
 
+        // --- ADMIN CONFIGURATION ---
+        // Define the email address that will be granted admin privileges
+        const ADMIN_EMAIL = "admin@easy-learn.com"; 
+        const ADMIN_PASSWORD = 123456;
+
+        // Global variables for Firebase services and state
+        let app = null;
+        let db;
+        let auth;
+        let userId = null;
+        let userEmail = null;
+        let isAdmin = false;
+        let isAuthReady = false; // <<< FIX: Defined isAuthReady globally
+
         // Global application state
         window.appState = {
             currentPage: 'home',
             selectedLanguage: null,
             chatHistory: [],
-            isChatLoading: false
+            isChatLoading: false,
+            // Languages are now managed dynamically via Firestore
+            languagesConfig: null, 
+            isConfigLoaded: false
         };
 
-        // Static Language Content Data (Lessons/Tasks/Quizzes removed)
-        const CONTENT_MAP = {
+        // Default language map for initialization if Firestore is empty or not available
+        const DEFAULT_LANGUAGE_MAP = {
             english: { name: "English", icon: "book-open", color: "bg-green-500", accent: "text-green-600" },
             hindi: { name: "Hindi (हिंदी)", icon: "landmark", color: "bg-red-500", accent: "text-red-600" },
             telugu: { name: "Telugu (తెలుగు)", icon: "users", color: "bg-blue-500", accent: "text-blue-600" },
             tamil: { name: "Tamil (தமிழ்)", icon: "bus", color: "bg-yellow-500", accent: "text-yellow-600" }
         };
 
+        // Firestore paths for public configuration (must be correct for security rules)
+        const SITE_CONFIG_DOC_PATH = `/artifacts/${appId}/public/data/site_settings/languages_config`;
+
         // --- FIREBASE INITIALIZATION AND AUTHENTICATION ---
+
+        function handleAppReady() {
+            const loadingOverlay = document.getElementById('loading-overlay');
+             if (isAuthReady && window.appState.isConfigLoaded) {
+                renderApp();
+                loadingOverlay.classList.add('hidden');
+            }
+        }
 
         async function initializeFirebase() {
             try {
                 const loadingOverlay = document.getElementById('loading-overlay');
+                const loadingMessage = document.getElementById('loading-message');
                 loadingOverlay.classList.remove('hidden');
 
-                // Check if config is provided (running in a host environment)
                 if (Object.keys(firebaseConfig).length > 0) {
                     app = initializeApp(firebaseConfig);
                     db = getFirestore(app);
                     auth = getAuth(app);
+                    
+                    // 1. Setup Firestore Listener for Language Config
+                    setupConfigListener();
 
-                    // Listen for Auth state changes
-                    onAuthStateChanged(auth, (user) => {
+                    // 2. Setup Auth State Listener
+                    onAuthStateChanged(auth, async (user) => {
                         if (user) {
                             userId = user.uid;
-                            console.log("Auth state changed. User ID:", userId);
+                            userEmail = user.email || null;
+                            isAdmin = userEmail === ADMIN_EMAIL;
+                            console.log("Auth state changed. User ID:", userId, "Admin:", isAdmin);
                         } else {
                             userId = null;
+                            userEmail = null;
+                            isAdmin = false;
                             console.log("User signed out.");
+                            
+                            // Attempt to sign in if no user is present (handles initial auth token)
+                            if (initialAuthToken) {
+                                loadingMessage.textContent = "Authenticating secure session...";
+                                await signInWithCustomToken(auth, initialAuthToken).catch(e => {
+                                    console.warn("Custom token sign-in failed. Attempting anonymous.", e);
+                                    return signInAnonymously(auth);
+                                });
+                            } else if (!auth.currentUser) {
+                                await signInAnonymously(auth);
+                            }
                         }
-                        isAuthReady = true;
+                        
+                        isAuthReady = true; 
                         updateUIOnAuth();
-                        renderApp();
-                        loadingOverlay.classList.add('hidden');
+                        handleAppReady();
                     });
-
-                    // Attempt to sign in if a token exists
-                    if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
-                    }
                 } else {
-                    // Running locally without config
+                    // Running locally without config - use default config and mock auth
                     console.warn("Firebase config is missing. Running in local development mode.");
-                    auth = { currentUser: null }; // Mock auth object
+                    auth = { currentUser: null }; 
+                    window.appState.languagesConfig = DEFAULT_LANGUAGE_MAP;
+                    window.appState.isConfigLoaded = true;
                     isAuthReady = true;
                     updateUIOnAuth();
-                    renderApp();
-                    loadingOverlay.classList.add('hidden');
+                    handleAppReady();
                 }
                 
             } catch (error) {
@@ -151,64 +199,123 @@
             }
         }
 
-        async function handleLogin() {
-            // Check if Firebase was initialized (i.e., if 'app' is not null)
+        function setupConfigListener() {
+            const configRef = doc(db, SITE_CONFIG_DOC_PATH);
+            onSnapshot(configRef, (docSnap) => {
+                if (docSnap.exists() && docSnap.data().languages) {
+                    window.appState.languagesConfig = docSnap.data().languages;
+                    console.log("Site config loaded from Firestore.");
+                } else {
+                    // Initialize with defaults if the document doesn't exist.
+                    // This will only save if an admin is logged in (handled inside saveLanguagesConfig)
+                    window.appState.languagesConfig = DEFAULT_LANGUAGE_MAP;
+                    console.log("Site config initialized with default values.");
+                    if (isAdmin) saveLanguagesConfig(window.appState.languagesConfig);
+                }
+                window.appState.isConfigLoaded = true;
+                handleAppReady();
+            }, (error) => {
+                // This is the error handler for the onSnapshot listener itself
+                console.error("Error listening to site config (Potential Permissions Issue):", error);
+                // Fallback to defaults if access fails
+                window.appState.languagesConfig = DEFAULT_LANGUAGE_MAP;
+                window.appState.isConfigLoaded = true;
+                handleAppReady();
+            });
+        }
+
+        /**
+         * Generic Modal for displaying messages (replaces native alert)
+         * @param {string} title - The title of the modal.
+         * @param {string} message - The message body.
+         * @param {string} type - 'success', 'error', or 'info'.
+         */
+        function showCustomModal(title, message, type = 'info') {
+            const existingModal = document.getElementById('custom-alert-modal');
+            if (existingModal) existingModal.remove();
+
+            let borderColor = 'border-indigo-500';
+            let titleColor = 'text-indigo-600';
+            
+            if (type === 'error') {
+                borderColor = 'border-red-500';
+                titleColor = 'text-red-600';
+            } else if (type === 'success') {
+                borderColor = 'border-green-500';
+                titleColor = 'text-green-600';
+            }
+
+            const modalHtml = `
+                <div id="custom-alert-modal" class="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50">
+                    <div class="bg-white p-6 rounded-lg shadow-2xl max-w-sm w-full text-center border-t-4 ${borderColor}">
+                        <h3 class="text-xl font-bold ${titleColor} mb-3">${title}</h3>
+                        <p class="text-gray-700 mb-4">${message}</p>
+                        <button class="bg-indigo-600 text-white px-4 py-2 rounded-full hover:bg-indigo-700 transition duration-150" onclick="document.getElementById('custom-alert-modal').remove()">
+                            OK
+                        </button>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }
+
+        /**
+         * Handles Log In and Sign Up for both users and the admin.
+         */
+        async function handleEmailPasswordAuth(mode, email, password) {
             if (!app) {
-                // --- LOCAL DEV LOGIN SIMULATION ---
-                // If running locally without config, simulate a successful anonymous login
-                userId = 'LOCAL_DEV_USER_' + Math.random().toString(16).slice(2, 8).toUpperCase();
-                isAuthReady = true;
-                console.log("Simulating local anonymous login:", userId);
-
-                // Update UI state and navigate
-                updateUIOnAuth();
-                renderApp();
-                navigate('dashboard');
-                
-                // Show a brief message to the user that this is a simulated login
-                const modalHtml = `
-                    <div id="custom-alert-modal" class="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50">
-                        <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center border-t-4 border-yellow-500">
-                            <h3 class="text-xl font-bold text-yellow-600 mb-3">Local Mode Active</h3>
-                            <p class="text-gray-700 mb-4">Authentication has been successfully simulated for local testing.</p>
-                            <button class="bg-indigo-600 text-white px-4 py-2 rounded-full hover:bg-indigo-700" onclick="document.getElementById('custom-alert-modal').remove()">
-                                Continue
-                            </button>
-                        </div>
-                    </div>
-                `;
-                document.body.insertAdjacentHTML('beforeend', modalHtml);
-                // --- END OF SIMULATION ---
-                return;
+                return showCustomModal("Local Mode", "Cannot perform live authentication in this environment. Running simulation.", 'info');
             }
 
-            // Real Firebase login attempt
             try {
-                // Use anonymous sign-in to get a persistent user ID
-                await signInAnonymously(auth);
-                navigate('dashboard');
+                let userCredential;
+                if (mode === 'signup') {
+                    userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                    showCustomModal("Success!", "Account created successfully. Welcome!", 'success');
+                } else { // mode === 'login'
+                    userCredential = await signInWithEmailAndPassword(auth, email, password);
+                    showCustomModal("Welcome Back!", "Logged in successfully.", 'success');
+                }
+                
+                // After successful login/signup, check role and navigate
+                const isCurrentUserAdmin = userCredential.user.email === ADMIN_EMAIL;
+                navigate(isCurrentUserAdmin ? 'admin-dashboard' : 'dashboard');
+
             } catch (error) {
-                console.error("Login failed:", error);
-                const modalHtml = `
-                    <div id="custom-alert-modal" class="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50">
-                        <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
-                            <h3 class="text-xl font-bold text-red-600 mb-3">Login Failed</h3>
-                            <p class="text-gray-700 mb-4">Login failed. Please try again.</p>
-                            <button class="bg-indigo-600 text-white px-4 py-2 rounded-full hover:bg-indigo-700" onclick="document.getElementById('custom-alert-modal').remove()">
-                                OK
-                            </button>
-                        </div>
-                    </div>
-                `;
-                document.body.insertAdjacentHTML('beforeend', modalHtml);
+                console.error(`${mode} failed:`, error);
+                let errorMessage = "An unknown error occurred. Please try again.";
+                
+                if (error.code === 'auth/email-already-in-use') {
+                    errorMessage = "This email is already registered. Please log in.";
+                } else if (error.code === 'auth/invalid-email') {
+                    errorMessage = "The email address is not valid.";
+                } else if (error.code === 'auth/weak-password') {
+                    errorMessage = "The password is too weak. Please use at least 6 characters.";
+                } else if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+                    errorMessage = "Invalid email or password.";
+                }
+
+                showCustomModal(`${mode === 'signup' ? 'Sign Up' : 'Log In'} Failed`, errorMessage, 'error');
             }
+        }
+        
+        window.handleFormSubmit = function(event, mode) {
+            event.preventDefault();
+            const email = document.getElementById('email-input').value.trim();
+            const password = document.getElementById('password-input').value.trim();
+            
+            if (!email || !password) {
+                return showCustomModal("Input Error", "Please enter both email and password.", 'error');
+            }
+
+            handleEmailPasswordAuth(mode, email, password);
         }
 
         async function handleLogout() {
             if (!auth || !app) {
                 // Handle logout simulation for local dev
                 userId = null;
-                isAuthReady = true;
+                isAdmin = false;
                 window.appState.selectedLanguage = null;
                 window.appState.chatHistory = [];
                 updateUIOnAuth();
@@ -218,9 +325,10 @@
             }
             try {
                 await signOut(auth);
-                window.appState.selectedLanguage = null; // Clear language selection
-                window.appState.chatHistory = []; // Clear chat
+                window.appState.selectedLanguage = null; 
+                window.appState.chatHistory = []; 
                 navigate('login');
+                showCustomModal("Logged Out", "You have been successfully signed out.", 'info');
             } catch (error) {
                 console.error("Logout failed:", error);
             }
@@ -234,30 +342,89 @@
 
             if (!authButton || !dashboardNavLink) return;
 
-            // Set Dashboard link target
-            const dashboardAction = () => navigate(userId ? 'dashboard' : 'login');
+            // Determine correct dashboard link based on role
+            const dashboardPage = isAdmin ? 'admin-dashboard' : 'dashboard';
+            const dashboardAction = () => navigate(userId ? dashboardPage : 'login');
+            
+            dashboardNavLink.textContent = isAdmin ? 'Admin' : 'Dashboard';
             dashboardNavLink.onclick = dashboardAction;
+            dashboardNavLinkMobile.textContent = isAdmin ? 'Admin' : 'Dashboard';
             dashboardNavLinkMobile.onclick = () => { dashboardAction(); toggleMobileMenu(); };
 
-
             if (userId) {
-                // Logged In
                 authButton.textContent = 'Logout';
                 authButton.onclick = handleLogout;
                 authButtonMobile.textContent = 'Logout';
                 authButtonMobile.onclick = () => { handleLogout(); toggleMobileMenu(); };
                 
             } else {
-                // Logged Out
                 authButton.textContent = 'Login';
                 authButton.onclick = () => navigate('login');
                 authButtonMobile.textContent = 'Login';
                 authButtonMobile.onclick = () => { navigate('login'); toggleMobileMenu(); };
 
                 // Redirect to login if user tries to access a restricted page while logged out
-                if (window.appState.currentPage === 'dashboard' || window.appState.currentPage === 'learn') {
+                if (window.appState.currentPage === 'dashboard' || window.appState.currentPage === 'learn' || window.appState.currentPage === 'admin-dashboard') {
                     window.appState.currentPage = 'login';
                 }
+            }
+        }
+
+        // --- FIREBASE ADMIN DATA MANAGEMENT ---
+
+        async function saveLanguagesConfig(config) {
+            if (!db || !isAdmin) {
+                return console.error("Not authorized or database not initialized to save config.");
+            }
+            try {
+                const configRef = doc(db, SITE_CONFIG_DOC_PATH);
+                await setDoc(configRef, { languages: config });
+                showCustomModal("Site Updated", "Language configuration saved successfully.", 'success');
+            } catch (error) {
+                console.error("Error saving config:", error);
+                showCustomModal("Error Saving", "Failed to save configuration to Firestore.", 'error');
+            }
+        }
+
+        window.addOrUpdateLanguage = function(event) {
+            event.preventDefault();
+            if (!isAdmin) return showCustomModal("Access Denied", "You must be logged in as an admin to perform this action.", 'error');
+
+            const form = event.target;
+            const key = form.elements['key'].value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+            const name = form.elements['name'].value.trim();
+            const icon = form.elements['icon'].value.trim();
+            const color = form.elements['color'].value.trim();
+            
+            if (!key || !name || !icon || !color) {
+                return showCustomModal("Input Missing", "All fields are required.", 'error');
+            }
+
+            const newConfig = {
+                ...window.appState.languagesConfig,
+                [key]: { name, icon, color, accent: `text-${color.split('-')[1]}-600` }
+            };
+            
+            // Clear form and save
+            form.reset();
+            saveLanguagesConfig(newConfig);
+        }
+
+        window.deleteLanguage = function(key) {
+            if (!isAdmin) return showCustomModal("Access Denied", "You must be logged in as an admin to perform this action.", 'error');
+            
+            if (!confirm(`Are you sure you want to delete the language '${window.appState.languagesConfig[key].name}'?`)) {
+                return;
+            }
+
+            const newConfig = { ...window.appState.languagesConfig };
+            delete newConfig[key];
+            saveLanguagesConfig(newConfig);
+
+            // If the user was viewing this language, navigate them away
+            if (window.appState.selectedLanguage === key) {
+                window.appState.selectedLanguage = null;
+                navigate('dashboard');
             }
         }
 
@@ -269,29 +436,18 @@
         async function askAIQuestion(question) {
             if (window.appState.isChatLoading) return;
             if (!userId) {
-                const modalHtml = `
-                    <div id="custom-alert-modal" class="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50">
-                        <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
-                            <h3 class="text-xl font-bold text-red-600 mb-3">Authentication Required</h3>
-                            <p class="text-gray-700 mb-4">You must be logged in to use the AI Tutor.</p>
-                            <button class="bg-indigo-600 text-white px-4 py-2 rounded-full hover:bg-indigo-700" onclick="document.getElementById('custom-alert-modal').remove(); navigate('login')">
-                                Go to Login
-                            </button>
-                        </div>
-                    </div>
-                `;
-                document.body.insertAdjacentHTML('beforeend', modalHtml);
-                return;
+                showCustomModal("Authentication Required", "You must be logged in to use the AI Tutor.", 'error');
+                return navigate('login');
             }
+            if (!window.appState.languagesConfig || !window.appState.selectedLanguage) return;
 
             window.appState.isChatLoading = true;
             document.getElementById('ai-loading-modal').classList.remove('hidden');
 
-            // Add user message to state
             window.appState.chatHistory.push({ role: 'user', text: question });
             renderChat();
 
-            const selectedLang = CONTENT_MAP[window.appState.selectedLanguage]?.name || 'a general language learning topic';
+            const selectedLang = window.appState.languagesConfig[window.appState.selectedLanguage]?.name || 'a general language learning topic';
             const systemPrompt = `You are Easy Learn, a friendly and expert language tutor specializing in ${selectedLang}. Your role is to answer the user's questions clearly, provide simple examples, and encourage them to practice. If the user asks a question in ${selectedLang} or related to it, respond directly using ${selectedLang} and provide an English translation or explanation. Keep responses concise and directly relevant to language learning.`;
 
             const payload = {
@@ -300,7 +456,7 @@
                 systemInstruction: { parts: [{ text: systemPrompt }] },
             };
 
-            const apiKey = "AIzaSyAoI-zcoSJY9IDLxYiuygKBnTaMjidVIwM"; // API key updated by user
+            const apiKey = ""; // API key will be provided by environment
 
             let responseText = "Sorry, I couldn't connect to the AI tutor. Please try again later.";
             let sources = [];
@@ -345,7 +501,6 @@
                 }
             }
 
-            // Add AI response to state
             window.appState.chatHistory.push({ role: 'ai', text: responseText, sources: sources });
             window.appState.isChatLoading = false;
             document.getElementById('ai-loading-modal').classList.add('hidden');
@@ -355,38 +510,32 @@
         // --- UI/RENDERING FUNCTIONS ---
 
         function navigate(page, langKey = null) {
+            // Admin only access check
+            if (page === 'admin-dashboard' && !isAdmin) {
+                showCustomModal("Access Denied", "You do not have permission to view the Admin Dashboard.", 'error');
+                return navigate('dashboard');
+            }
+
             window.appState.currentPage = page;
 
             if (page === 'learn' && langKey) {
                 if (!userId) {
-                    // Use custom modal instead of alert
-                    const modalHtml = `
-                        <div id="custom-alert-modal" class="fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50">
-                            <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
-                                <h3 class="text-xl font-bold text-red-600 mb-3">Login Required</h3>
-                                <p class="text-gray-700 mb-4">Please log in first to start practicing.</p>
-                                <button class="bg-indigo-600 text-white px-4 py-2 rounded-full hover:bg-indigo-700" onclick="document.getElementById('custom-alert-modal').remove(); navigate('login')">
-                                    Go to Login
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                    document.body.insertAdjacentHTML('beforeend', modalHtml);
+                    showCustomModal("Login Required", "Please log in first to start practicing.", 'error');
                     return navigate('login');
                 }
                 window.appState.selectedLanguage = langKey;
-                window.appState.chatHistory = []; // Clear chat when starting a new language
-            } else if (page === 'dashboard' && !userId) {
+                window.appState.chatHistory = []; 
+            } else if ((page === 'dashboard' || page === 'admin-dashboard') && !userId) {
                 return navigate('login');
             }
             
-            // Close mobile menu if open
             const mobileMenu = document.getElementById('mobile-menu');
             if (mobileMenu && !mobileMenu.classList.contains('hidden')) {
                 mobileMenu.classList.add('hidden');
             }
             renderApp();
-            window.scrollTo(0, 0); // Scroll to top on navigation
+            lucide.createIcons();
+            window.scrollTo(0, 0); 
         }
 
         function toggleMobileMenu() {
@@ -397,9 +546,13 @@
             const contentDiv = document.getElementById('app-content');
             let html = '';
 
-            // Ensure authenticated users are redirected away from login/home if they hit the button
             if (userId && window.appState.currentPage === 'login') {
-                window.appState.currentPage = 'dashboard';
+                window.appState.currentPage = isAdmin ? 'admin-dashboard' : 'dashboard';
+            }
+            
+            // Only render if both config and auth are ready
+            if (!window.appState.isConfigLoaded || !isAuthReady) {
+                 return;
             }
 
             switch (window.appState.currentPage) {
@@ -412,6 +565,9 @@
                 case 'login':
                     html = renderLoginPage();
                     break;
+                case 'admin-dashboard':
+                    html = renderAdminDashboardPage();
+                    break;
                 case 'dashboard':
                     html = renderDashboardPage();
                     break;
@@ -423,10 +579,8 @@
             }
 
             contentDiv.innerHTML = html;
-            // Re-render Lucide icons after setting innerHTML
             lucide.createIcons();
 
-            // Special handling for the chat window on the Learn Page
             if (window.appState.currentPage === 'learn') {
                 renderChat();
             }
@@ -435,6 +589,7 @@
         // --- PAGE RENDERERS ---
 
         function renderHomePage() {
+            const languages = Object.values(window.appState.languagesConfig || {});
             return `
                 <div class="text-center py-20 bg-indigo-50 rounded-xl shadow-lg">
                     <i data-lucide="zap" class="w-12 h-12 mx-auto text-indigo-500 mb-4"></i>
@@ -442,15 +597,15 @@
                         Master Languages with <span class="text-indigo-600">Easy Learn</span>
                     </h1>
                     <p class="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
-                        Ask our AI Tutor anything about English, Hindi, Telugu, or Tamil. Get instant, real-time feedback and practice.
+                        Ask our AI Tutor anything about any of the available languages. Get instant, real-time feedback and practice.
                     </p>
                     <button class="bg-indigo-600 text-white text-lg font-semibold px-8 py-3 rounded-full hover:bg-indigo-700 transition duration-300 shadow-xl transform hover:scale-[1.02]"
-                        onclick="navigate('${userId ? 'dashboard' : 'login'}')">
-                        ${userId ? 'Go to Dashboard' : 'Start Learning Now'} <i data-lucide="arrow-right" class="inline w-5 h-5 ml-1"></i>
+                        onclick="navigate('${userId ? (isAdmin ? 'admin-dashboard' : 'dashboard') : 'login'}')">
+                        ${userId ? (isAdmin ? 'Go to Admin Panel' : 'Go to Dashboard') : 'Start Learning Now'} <i data-lucide="arrow-right" class="inline w-5 h-5 ml-1"></i>
                     </button>
                 </div>
                 <div class="mt-16 grid md:grid-cols-2 lg:grid-cols-4 gap-8">
-                    ${Object.values(CONTENT_MAP).map(lang => `
+                    ${languages.map(lang => `
                         <div class="bg-white p-6 rounded-xl shadow-md border-t-4 ${lang.color}">
                             <i data-lucide="${lang.icon}" class="w-8 h-8 ${lang.accent} mb-3"></i>
                             <h3 class="text-xl font-bold text-gray-900 mb-2">${lang.name}</h3>
@@ -473,34 +628,14 @@
                         <div>
                             <h3 class="text-2xl font-semibold text-indigo-600 mb-2">AI-Powered Practice</h3>
                             <p class="text-gray-600">
-                                We use advanced Large Language Models (Gemini API) to give you real-time explanations, contextual examples, and instant feedback tailored to your questions in your chosen language.
+                                We use advanced Large Language Models (Gemini API) to give you real-time explanations, contextual examples, and instant feedback tailored to your questions.
                             </p>
                         </div>
 
-                        <!-- NEW SECTION FOR SHARING THE PUBLIC LINK -->
                         <div>
-                            <h3 class="text-2xl font-semibold text-indigo-600 mb-2">Share Your Public Link</h3>
-                            <p class="text-gray-600 mb-4">
-                                Once you host this file as <code>index.html</code> on GitHub Pages, this is the format of the **shareable URL** you can send to your manager:
-                            </p>
-                            <div class="p-4 bg-gray-100 rounded-lg border border-dashed border-gray-300">
-                                <p class="text-sm font-mono text-gray-800 break-all">
-                                    <i data-lucide="link" class="w-4 h-4 inline mr-2 text-indigo-500"></i>
-                                    <span class="font-bold">YOUR PUBLIC URL WILL LOOK LIKE:</span> 
-                                    <a href="https://your-github-username.github.io/repo-name/" target="_blank" class="text-indigo-600 hover:underline">
-                                        https://your-github-username.github.io/repo-name/
-                                    </a>
-                                </p>
-                                <p class="text-xs text-red-500 mt-2">
-                                    *Remember to replace 'your-github-username' and 'repo-name' with your actual values after deployment.*
-                                </p>
-                            </div>
-                        </div>
-
-                        <div>
-                            <h3 class="text-2xl font-semibold text-indigo-600 mb-2">Our Languages</h3>
+                            <h3 class="text-2xl font-semibold text-indigo-600 mb-2">Our Languages (Admin Managed)</h3>
                             <p class="text-gray-600">
-                                We offer dedicated AI tutors for **English, Hindi, Telugu, and Tamil**.
+                                The list of available languages is dynamically controlled by the site administrator using the integrated Firebase Firestore panel.
                             </p>
                         </div>
                     </div>
@@ -509,32 +644,81 @@
         }
 
         function renderLoginPage() {
+            const currentRoute = window.appState.currentPage;
+
             return `
                 <div class="max-w-md mx-auto py-16">
-                    <div class="bg-white p-8 rounded-xl shadow-2xl text-center border-t-4 border-indigo-500">
-                        <i data-lucide="user-plus" class="w-10 h-10 mx-auto text-indigo-500 mb-4"></i>
-                        <h2 class="text-3xl font-bold text-gray-900 mb-4">Welcome to Easy Learn</h2>
-                        <p class="text-gray-600 mb-6">
-                            Start your personalized language practice instantly. We'll create a temporary secure session for you.
-                        </p>
-                        <button class="w-full bg-indigo-600 text-white text-lg font-semibold px-8 py-3 rounded-full hover:bg-indigo-700 transition duration-300 shadow-lg"
-                            onclick="handleLogin()">
-                            Start Learning <i data-lucide="log-in" class="inline w-5 h-5 ml-2"></i>
-                        </button>
-                        <p class="text-sm text-gray-500 mt-4">No password needed. Your session is temporary.</p>
+                    <div class="bg-white p-8 rounded-xl shadow-2xl border-t-4 border-indigo-500">
+                        <i data-lucide="lock" class="w-10 h-10 mx-auto text-indigo-500 mb-4"></i>
+                        <h2 class="text-3xl font-bold text-gray-900 mb-6 text-center">User Log In / Sign Up</h2>
+                        
+                        <form id="auth-form" onsubmit="event.preventDefault()">
+                            <div class="space-y-4">
+                                <div>
+                                    <label for="email-input" class="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+                                    <input type="email" id="email-input" required placeholder="name@example.com"
+                                        class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500" />
+                                </div>
+                                
+                                <div>
+                                    <label for="password-input" class="block text-sm font-medium text-gray-700 mb-1">Password (min. 6 characters)</label>
+                                    <input type="password" id="password-input" required placeholder="••••••••" minlength="6"
+                                        class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500" />
+                                </div>
+                            </div>
+                            
+                            <div class="mt-8 space-y-4">
+                                <button type="button" 
+                                    class="w-full bg-indigo-600 text-white text-lg font-semibold px-8 py-3 rounded-full hover:bg-indigo-700 transition duration-300 shadow-lg transform hover:scale-[1.01]"
+                                    onclick="handleFormSubmit(event, 'login')">
+                                    Log In <i data-lucide="log-in" class="inline w-5 h-5 ml-2"></i>
+                                </button>
+
+                                <button type="button"
+                                    class="w-full bg-gray-200 text-indigo-600 text-lg font-semibold px-8 py-3 rounded-full hover:bg-gray-300 transition duration-300 shadow-md"
+                                    onclick="handleFormSubmit(event, 'signup')">
+                                    Sign Up <i data-lucide="user-plus" class="inline w-5 h-5 ml-2"></i>
+                                </button>
+                            </div>
+                        </form>
+
+                        <div class="mt-6 text-center text-sm text-gray-500">
+                            Are you the admin? <a href="#" onclick="showAdminModal()" class="text-indigo-600 hover:underline font-medium">Click here to log in.</a>
+                        </div>
                     </div>
                 </div>
             `;
         }
+        
+        // Custom Admin Modal for clarity
+        window.showAdminModal = function() {
+            showCustomModal(
+                "Admin Login Info", 
+                `Use the designated administrator email: <code class="bg-gray-100 p-1 rounded font-mono">${ADMIN_EMAIL}</code> to gain admin privileges after logging in.`, 
+                'info'
+            );
+        }
 
         function renderDashboardPage() {
-            const languages = Object.entries(CONTENT_MAP);
+            const languages = Object.entries(window.appState.languagesConfig || {});
+
+            if (languages.length === 0) {
+                 return `
+                    <div class="bg-white p-8 rounded-xl shadow-lg text-center">
+                        <h2 class="text-4xl font-bold text-gray-900 mb-2">No Languages Available</h2>
+                        <p class="text-lg text-gray-600 mb-8">
+                            Please check back later or contact the site administrator.
+                        </p>
+                        ${isAdmin ? `<button class="bg-red-600 text-white px-6 py-2 rounded-full mt-4" onclick="navigate('admin-dashboard')">Go to Admin Panel</button>` : ''}
+                    </div>
+                `;
+            }
 
             return `
                 <div class="bg-white p-8 rounded-xl shadow-lg">
                     <h2 class="text-4xl font-bold text-gray-900 mb-2">Select Your Language Tutor</h2>
                     <p class="text-lg text-gray-600 mb-8">
-                        You are currently logged in with ID: <code class="font-mono bg-gray-100 p-1 rounded text-sm text-indigo-700">${userId}</code>. Click a language to start chatting.
+                        You are logged in as a standard user (${userEmail || 'Guest'}). User ID: <code class="font-mono bg-gray-100 p-1 rounded text-sm text-indigo-700">${userId}</code>.
                     </p>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -551,11 +735,81 @@
                 </div>
             `;
         }
+        
+        function renderAdminDashboardPage() {
+            if (!isAdmin) return renderDashboardPage(); // Fallback if navigated directly without admin status
+
+            const languages = Object.entries(window.appState.languagesConfig || {});
+            
+            return `
+                <div class="bg-white p-8 rounded-xl shadow-lg">
+                    <h2 class="text-4xl font-bold text-red-600 mb-2 flex items-center">
+                        <i data-lucide="shield-alert" class="w-8 h-8 mr-3"></i> Admin Panel
+                    </h2>
+                    <p class="text-lg text-gray-600 mb-8 border-b pb-4">
+                        Logged in as Administrator (${userEmail}). Use this panel to manage the site's available language tutors.
+                    </p>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <!-- Language Management Form -->
+                        <div class="lg:col-span-1 bg-gray-50 p-6 rounded-xl shadow-inner h-fit">
+                            <h3 class="text-2xl font-semibold text-indigo-600 mb-4">Add / Edit Language</h3>
+                            <form onsubmit="addOrUpdateLanguage(event)" id="language-form" class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Key (e.g., english)</label>
+                                    <input type="text" name="key" required placeholder="unique-key" class="w-full p-2 border rounded-lg">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Display Name (e.g., English)</label>
+                                    <input type="text" name="name" required placeholder="Language Name" class="w-full p-2 border rounded-lg">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Icon (Lucide Icon Name)</label>
+                                    <input type="text" name="icon" required placeholder="book-open, landmark, etc." class="w-full p-2 border rounded-lg">
+                                    <p class="text-xs text-gray-500 mt-1">Check lucide.dev for names.</p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Tailwind Color (e.g., bg-blue-500)</label>
+                                    <input type="text" name="color" required placeholder="bg-color-500" class="w-full p-2 border rounded-lg">
+                                </div>
+                                <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-full font-semibold hover:bg-indigo-700 transition">
+                                    Save Language
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Existing Languages List -->
+                        <div class="lg:col-span-2">
+                            <h3 class="text-2xl font-semibold text-gray-900 mb-4">Current Languages (${languages.length})</h3>
+                            <div class="space-y-3">
+                                ${languages.map(([key, lang]) => `
+                                    <div class="bg-white p-4 rounded-lg shadow flex justify-between items-center border-l-4 ${lang.color}">
+                                        <div>
+                                            <p class="text-xl font-bold text-gray-900">${lang.name} (<span class="font-mono text-sm text-gray-500">${key}</span>)</p>
+                                            <div class="flex items-center text-sm text-gray-600 mt-1 space-x-2">
+                                                <i data-lucide="${lang.icon}" class="w-4 h-4 ${lang.accent}"></i>
+                                                <span>Icon: ${lang.icon}</span>
+                                                <span>Color: ${lang.color}</span>
+                                            </div>
+                                        </div>
+                                        <button onclick="deleteLanguage('${key}')" class="text-red-500 hover:text-red-700 p-2 rounded-full hover:bg-red-50 transition">
+                                            <i data-lucide="trash-2" class="w-5 h-5"></i>
+                                        </button>
+                                    </div>
+                                `).join('')}
+                                ${languages.length === 0 ? '<p class="text-gray-500 italic">No languages defined. Use the form to add one!</p>' : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
 
 
         function renderLearnPage() {
             const langKey = window.appState.selectedLanguage;
-            const content = CONTENT_MAP[langKey];
+            const content = window.appState.languagesConfig[langKey];
 
             if (!content) {
                  return `<div class="p-8 text-center text-red-500">Error: Please select a language from the <a href="#" onclick="navigate('dashboard')" class="text-indigo-600 hover:underline">Dashboard</a>.</div>`;
@@ -575,7 +829,6 @@
                         </div>
 
                         <div id="ai-chat-history" class="flex-grow overflow-y-auto custom-scrollbar p-2 mb-4 bg-gray-50 rounded-lg space-y-4">
-                            <!-- Initial welcome message is rendered here by renderChat() -->
                         </div>
 
                         <form id="ai-chat-form" onsubmit="handleChatSubmit(event)" class="flex items-center space-x-3">
@@ -600,7 +853,7 @@
             const question = inputElement.value.trim();
             if (question) {
                 askAIQuestion(question);
-                inputElement.value = ''; // Clear input
+                inputElement.value = ''; 
             }
         }
 
@@ -608,17 +861,15 @@
             const chatHistoryDiv = document.getElementById('ai-chat-history');
             if (!chatHistoryDiv) return;
 
-            // Define the welcome message based on the currently selected language
             const welcomeMessage = `
                 <div class="flex justify-start">
                     <div class="bg-gray-100 text-gray-800 p-3 rounded-xl rounded-tl-none max-w-xs md:max-w-md shadow-md">
                         <strong class="text-indigo-600">AI Tutor:</strong>
-                        <p>Hello! I'm your tutor for **${CONTENT_MAP[window.appState.selectedLanguage].name}**. Ask me any question you have about grammar, vocabulary, or culture. Feel free to practice speaking here too!</p>
+                        <p>Hello! I'm your tutor for **${window.appState.languagesConfig[window.appState.selectedLanguage].name}**. Ask me any question you have about grammar, vocabulary, or culture. Feel free to practice speaking here too!</p>
                     </div>
                 </div>
             `;
             
-            // Map the history messages
             const chatMessages = window.appState.chatHistory.map(message => {
                 if (message.role === 'user') {
                     return `
@@ -629,7 +880,6 @@
                         </div>
                     `;
                 } else {
-                    // AI Message
                     let sourcesHtml = '';
                     if (message.sources && message.sources.length > 0) {
                         const uniqueSources = Array.from(new Set(message.sources.map(s => s.title))).slice(0, 3);
@@ -655,8 +905,6 @@
             
             chatHistoryDiv.innerHTML = welcomeMessage + chatMessages;
 
-
-            // Scroll to bottom
             chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
             lucide.createIcons();
         }
@@ -667,13 +915,15 @@
         window.toggleMobileMenu = toggleMobileMenu;
         window.handleChatSubmit = handleChatSubmit;
         window.askAIQuestion = askAIQuestion; 
-        window.handleLogin = handleLogin;
         window.handleLogout = handleLogout;
+        window.showCustomModal = showCustomModal; // Exporting for usage in custom UI
+        window.handleFormSubmit = handleFormSubmit;
+        window.addOrUpdateLanguage = addOrUpdateLanguage;
+        window.deleteLanguage = deleteLanguage;
 
 
         // Initialize App on load
         window.onload = initializeFirebase;
     </script>
-    <a href="#" class="hover:text-indigo-600 transition duration-150" onclick="navigate('home')">Home</a>
 </body>
 </html>
